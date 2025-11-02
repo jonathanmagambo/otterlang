@@ -282,7 +282,7 @@ We've benchmarked OtterLang against C and Rust using the [Leibniz formula for π
 | Rust | `rustc -O` | 0.009s | 1.29x |
 | OtterLang | `otter --release` | 0.037s | 5.29x |
 
-*Benchmarks run on macOS with LLVM 15. OtterLang is competitive with compiled languages for CPU-intensive tasks.*
+*Benchmarks run on macOS with LLVM 15. OtterLang demonstrates competitive performance with compiled languages.*
 
 ### Example Implementations
 

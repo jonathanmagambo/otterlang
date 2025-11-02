@@ -12,7 +12,7 @@ fn calculate_pi(iterations: float) -> float:
     return pi * 4.0
 
 fn main:
-    let iterations = 1e7
+    let iterations = 1000000.0 * 10.0
     let pi = calculate_pi(iterations)
     let pi_str = f"{pi}"
     print("π ≈ ")
