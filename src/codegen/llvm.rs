@@ -197,15 +197,15 @@ pub fn build_executable(
     
     // Get the normalized triple string for LLVM
     let triple_str = if target_triple.arch == "arm64" {
-        "aarch64-apple-darwin"
+        "aarch64-apple-darwin".to_string()
     } else if target_triple.arch == "x86_64" && target_triple.os == "darwin" {
-        "x86_64-apple-darwin"
+        "x86_64-apple-darwin".to_string()
     } else {
         target_triple.to_llvm_triple()
     };
     
     // Create inkwell TargetTriple directly
-    let llvm_triple = inkwell::targets::TargetTriple::create(triple_str);
+    let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
     let target = Target::from_triple(&llvm_triple)
@@ -381,15 +381,15 @@ pub fn build_shared_library(
     
     // Get the normalized triple string for LLVM
     let triple_str = if target_triple.arch == "arm64" {
-        "aarch64-apple-darwin"
+        "aarch64-apple-darwin".to_string()
     } else if target_triple.arch == "x86_64" && target_triple.os == "darwin" {
-        "x86_64-apple-darwin"
+        "x86_64-apple-darwin".to_string()
     } else {
         target_triple.to_llvm_triple()
     };
     
     // Create inkwell TargetTriple directly
-    let llvm_triple = inkwell::targets::TargetTriple::create(triple_str);
+    let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
     let target = Target::from_triple(&llvm_triple)
