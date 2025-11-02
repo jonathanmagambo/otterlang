@@ -195,12 +195,11 @@ pub fn build_executable(
     
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
-    let triple_str = if let Some(idx) = native_str.rfind('-') {
-        let before_last = &native_str[..idx];
-        // Check if the part after last '-' is a version number
-        let after_last = &native_str[idx+1..];
-        if after_last.chars().all(|c| c.is_ascii_digit() || c == '.') {
-            before_last.to_string()
+    let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
+        let after_darwin = &native_str[darwin_idx + 6..];
+        if after_darwin.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '.') {
+            // Version suffix found after "darwin", strip it
+            format!("{}darwin", &native_str[..darwin_idx + 6])
         } else {
             native_str.clone()
         }
@@ -386,12 +385,11 @@ pub fn build_shared_library(
     
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
-    let triple_str = if let Some(idx) = native_str.rfind('-') {
-        let before_last = &native_str[..idx];
-        // Check if the part after last '-' is a version number
-        let after_last = &native_str[idx+1..];
-        if after_last.chars().all(|c| c.is_ascii_digit() || c == '.') {
-            before_last.to_string()
+    let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
+        let after_darwin = &native_str[darwin_idx + 6..];
+        if after_darwin.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '.') {
+            // Version suffix found after "darwin", strip it
+            format!("{}darwin", &native_str[..darwin_idx + 6])
         } else {
             native_str.clone()
         }
