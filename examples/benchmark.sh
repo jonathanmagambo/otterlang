@@ -47,7 +47,7 @@ echo ""
 echo -e "${YELLOW}C (gcc -O3):${NC}"
 C_TIMES=()
 for i in {1..5}; do
-    TIME=$(/usr/bin/time -p ./pi_leibniz_c 2>&1 | grep real | awk '{print $2}')
+    TIME=$(/usr/bin/time -p ./pi_leibniz_c 2>&1 | grep "^real" | awk '{print $2}')
     C_TIMES+=($TIME)
     echo "  Run $i: ${TIME}s"
 done
@@ -56,7 +56,7 @@ done
 echo -e "${YELLOW}Rust (rustc -O):${NC}"
 RUST_TIMES=()
 for i in {1..5}; do
-    TIME=$(/usr/bin/time -p ./pi_leibniz_rust 2>&1 | grep real | awk '{print $2}')
+    TIME=$(/usr/bin/time -p ./pi_leibniz_rust 2>&1 | grep "^real" | awk '{print $2}')
     RUST_TIMES+=($TIME)
     echo "  Run $i: ${TIME}s"
 done
@@ -65,7 +65,9 @@ done
 echo -e "${YELLOW}OtterLang (otter --release):${NC}"
 OTTER_TIMES=()
 for i in {1..5}; do
-    TIME=$(/usr/bin/time -p ./pi_leibniz_otter 2>&1 | grep "^real" | awk '{print $2}')
+    # Run program and capture timing - time outputs to stderr, so we need to capture it properly
+    OUTPUT=$(/usr/bin/time -p ./pi_leibniz_otter 2>&1)
+    TIME=$(echo "$OUTPUT" | grep "^real" | awk '{print $2}')
     OTTER_TIMES+=($TIME)
     echo "  Run $i: ${TIME}s"
 done
