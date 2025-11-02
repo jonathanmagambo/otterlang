@@ -267,13 +267,13 @@ otterlang/
 
 ### Known Limitations
 
-1. **Module System**: Only Rust FFI imports (`use rust:crate`) are fully supported. General module imports from `.otter` files are not yet implemented.
+1. **Module System**: Module imports from `.otter` files are supported (both relative paths like `use ./math` and stdlib modules like `use otter:math`). However, complex module resolution features may have limitations.
 
-2. **Type System**: Type inference is limited. Explicit type annotations are recommended for complex code.
+2. **Type System**: Type inference is limited. Explicit type annotations are recommended for complex code, especially for generic types and function signatures.
 
-3. **Async/Tasks**: The task runtime is experimental. Not all task features are fully implemented.
+3. **Async/Tasks**: The task runtime is functional but some advanced features may be incomplete. Task spawning and channels are supported, but some edge cases may need refinement.
 
-4. **Standard Library**: Some stdlib modules may have incomplete implementations.
+4. **Standard Library**: Most stdlib modules are implemented, but some may have incomplete implementations or missing edge cases. Check individual module documentation for details.
 
 5. **Error Messages**: Error reporting is still being improved. Use `--dump-tokens` and `--dump-ast` for debugging.
 
