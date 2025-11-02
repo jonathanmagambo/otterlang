@@ -13,15 +13,15 @@ An experimental indentation-sensitive programming language with an LLVM backend.
 
 ## Performance Benchmarks
 
-Benchmarked against C and Rust using the [Leibniz formula for π](https://en.wikipedia.org/wiki/Leibniz_formula_for_%CF%80) (10,000,000 iterations):
+Benchmarked against C and Rust using the [Leibniz formula for π](https://en.wikipedia.org/wiki/Leibniz_formula_for_%CF%80) (100,000,000 iterations):
 
 | Language | Compiler | Avg Time (5 runs) | Relative to C |
 | ------------- | ------------- | ------------- | ------------- |
-| C | `gcc -O3` | 0.012s | 1.00x (baseline) |
-| Rust | `rustc -O` | 0.012s | 1.00x |
-| OtterLang | `otter --release` | 0.012s | 1.00x |
+| C | `gcc -O3` | 0.072s | 1.00x (baseline) |
+| Rust | `rustc -O` | 0.074s | 1.03x |
+| OtterLang | `otter --release` | 0.074s | 1.03x |
 
-*Benchmarks run on macOS with LLVM 15.*
+*Benchmarks run on macOS with LLVM 15. Run `examples/benchmark.sh` to test yourself.*
 
 ## Quick Setup
 
