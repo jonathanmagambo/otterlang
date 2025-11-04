@@ -175,4 +175,3 @@ impl<T: OtterObject> Drop for WeakOtter<T> {
         }
     }
 }
-

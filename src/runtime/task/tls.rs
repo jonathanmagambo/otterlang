@@ -3,10 +3,10 @@
 //! Provides task-local storage similar to thread-local storage, where each task
 //! has its own isolated storage space.
 
+use parking_lot::Mutex;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 use super::task::TaskId;
 
@@ -42,7 +42,9 @@ impl TaskLocalStorage {
     }
 
     /// Get a reference to a value in task-local storage (without cloning).
-    pub fn get_ref<T: Send + Sync + 'static>(&self) -> Option<std::sync::LockResult<parking_lot::MutexGuard<'_, T>>>
+    pub fn get_ref<T: Send + Sync + 'static>(
+        &self,
+    ) -> Option<std::sync::LockResult<parking_lot::MutexGuard<'_, T>>>
     where
         T: 'static,
     {
@@ -143,4 +145,3 @@ pub fn get_task_local_storage(task_id: TaskId) -> TaskLocalStorage {
 pub fn cleanup_task_local_storage(task_id: TaskId) {
     TASK_LOCAL_REGISTRY.remove(task_id);
 }
-

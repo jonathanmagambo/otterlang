@@ -55,7 +55,7 @@ impl Default for GcConfig {
         Self {
             strategy: GcStrategy::Hybrid,
             memory_threshold: 0.8, // 80% memory usage
-            gc_interval_ms: 5000,   // 5 seconds
+            gc_interval_ms: 5000,  // 5 seconds
             auto_gc: true,
             max_heap_size: 0, // Unlimited
         }
@@ -96,4 +96,3 @@ impl GcConfig {
         config
     }
 }
-

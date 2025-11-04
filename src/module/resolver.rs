@@ -1,6 +1,6 @@
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use anyhow::{anyhow, bail, Context, Result};
 
 /// Represents a module path that can be resolved
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,10 +40,11 @@ impl ModulePath {
     pub fn resolve(&self, source_dir: &Path, stdlib_dir: Option<&Path>) -> Result<PathBuf> {
         match self {
             ModulePath::Stdlib(name) => {
-                let stdlib = stdlib_dir.ok_or_else(|| anyhow!("stdlib directory not configured"))?;
+                let stdlib =
+                    stdlib_dir.ok_or_else(|| anyhow!("stdlib directory not configured"))?;
                 let mut path = stdlib.join(name);
                 path.set_extension("otter");
-                
+
                 if path.exists() {
                     Ok(path)
                 } else {
@@ -61,11 +62,11 @@ impl ModulePath {
                 } else {
                     resolved
                 };
-                
+
                 if !path.exists() && !path.extension().map_or(false, |ext| ext == "otter") {
                     path.set_extension("otter");
                 }
-                
+
                 if path.exists() {
                     Ok(path.canonicalize().with_context(|| {
                         format!("failed to canonicalize module path {}", path.display())
@@ -80,11 +81,11 @@ impl ModulePath {
                 } else {
                     abs_path.clone()
                 };
-                
+
                 if !path.exists() && !path.extension().map_or(false, |ext| ext == "otter") {
                     path.set_extension("otter");
                 }
-                
+
                 if path.exists() {
                     Ok(path.canonicalize().with_context(|| {
                         format!("failed to canonicalize module path {}", path.display())
@@ -111,7 +112,10 @@ impl DependencyGraph {
 
     /// Add a dependency edge from `from` to `to`
     pub fn add_dependency(&mut self, from: PathBuf, to: PathBuf) {
-        self.nodes.entry(from).or_insert_with(HashSet::new).insert(to);
+        self.nodes
+            .entry(from)
+            .or_insert_with(HashSet::new)
+            .insert(to);
     }
 
     /// Check for circular dependencies starting from a root node
@@ -198,7 +202,7 @@ mod tests {
     #[test]
     fn test_module_path_parsing() {
         let source_dir = PathBuf::from("/tmp");
-        
+
         // Test stdlib
         let path = ModulePath::from_string("otter:math", &source_dir).unwrap();
         assert!(matches!(path, ModulePath::Stdlib(name) if name == "math"));
@@ -241,4 +245,3 @@ mod tests {
         assert!(graph.check_circular(&a).is_err());
     }
 }
-

@@ -2,20 +2,26 @@ use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 use crate::ast::nodes::{Block, Expr, Function, Literal, Program, Statement};
-use crate::typecheck::types::{TypeContext, TypeInfo, TypeError};
-use crate::runtime::symbol_registry::{SymbolRegistry, FfiType};
+use crate::runtime::symbol_registry::{FfiType, SymbolRegistry};
+use crate::typecheck::types::{TypeContext, TypeError, TypeInfo};
 
 /// Type checker that validates and infers types in OtterLang programs
 pub struct TypeChecker {
     errors: Vec<TypeError>,
     context: TypeContext,
     registry: Option<&'static SymbolRegistry>,
+    expr_types: HashMap<usize, TypeInfo>,
 }
 
 impl TypeChecker {
+    fn record_expr_type(&mut self, expr: &Expr, ty: &TypeInfo) {
+        let id = expr as *const Expr as usize;
+        self.expr_types.insert(id, ty.clone());
+    }
+
     pub fn new() -> Self {
         let mut context = TypeContext::new();
-        
+
         // Register built-in functions
         Self::register_builtins(&mut context);
 
@@ -23,11 +29,26 @@ impl TypeChecker {
         context.define_type_alias("float".to_string(), TypeInfo::F64);
         context.define_type_alias("int".to_string(), TypeInfo::I32);
         context.define_type_alias("number".to_string(), TypeInfo::F64);
+        context.define_type_alias("None".to_string(), TypeInfo::Unit);
+        context.define_type_alias("unit".to_string(), TypeInfo::Unit);
+        context.define_type_alias(
+            "list".to_string(),
+            TypeInfo::List(Box::new(TypeInfo::Unknown)),
+        );
+        context.define_type_alias(
+            "dict".to_string(),
+            TypeInfo::Dict {
+                key: Box::new(TypeInfo::Unknown),
+                value: Box::new(TypeInfo::Unknown),
+            },
+        );
+        context.define_type_alias("Error".to_string(), TypeInfo::Error);
 
         Self {
             errors: Vec::new(),
             context,
             registry: None,
+            expr_types: HashMap::new(),
         }
     }
 
@@ -43,6 +64,7 @@ impl TypeChecker {
             "print".to_string(),
             TypeInfo::Function {
                 params: vec![TypeInfo::Str],
+                param_defaults: vec![false],
                 return_type: Box::new(TypeInfo::Unit),
             },
         );
@@ -52,15 +74,17 @@ impl TypeChecker {
             "len".to_string(),
             TypeInfo::Function {
                 params: vec![TypeInfo::Str],
+                param_defaults: vec![false],
                 return_type: Box::new(TypeInfo::I64),
             },
         );
-        
+
         // cap function
         context.functions.insert(
             "cap".to_string(),
             TypeInfo::Function {
                 params: vec![TypeInfo::Str],
+                param_defaults: vec![false],
                 return_type: Box::new(TypeInfo::I64),
             },
         );
@@ -70,16 +94,20 @@ impl TypeChecker {
             "panic".to_string(),
             TypeInfo::Function {
                 params: vec![TypeInfo::Str],
+                param_defaults: vec![false],
                 return_type: Box::new(TypeInfo::Unit),
             },
         );
 
         // Common math functions (from math module)
-        for func_name in &["abs", "sqrt", "pow", "exp", "log", "sin", "cos", "tan", "floor", "ceil", "round"] {
+        for func_name in &[
+            "abs", "sqrt", "pow", "exp", "log", "sin", "cos", "tan", "floor", "ceil", "round",
+        ] {
             context.functions.insert(
                 func_name.to_string(),
                 TypeInfo::Function {
                     params: vec![TypeInfo::F64],
+                    param_defaults: vec![false],
                     return_type: Box::new(TypeInfo::F64),
                 },
             );
@@ -91,6 +119,7 @@ impl TypeChecker {
                 func_name.to_string(),
                 TypeInfo::Function {
                     params: vec![TypeInfo::F64, TypeInfo::F64],
+                    param_defaults: vec![false, false],
                     return_type: Box::new(TypeInfo::F64),
                 },
             );
@@ -102,20 +131,33 @@ impl TypeChecker {
         // First pass: collect struct definitions and type aliases
         for statement in &program.statements {
             match statement {
-                Statement::Struct { name, fields, generics, .. } => {
+                Statement::Struct {
+                    name,
+                    fields,
+                    methods,
+                    generics,
+                    ..
+                } => {
                     let mut field_types = HashMap::new();
                     for (field_name, field_ty) in fields {
                         let ty = TypeInfo::from(field_ty);
                         field_types.insert(field_name.clone(), ty);
                     }
-                    
+
                     // Push generic parameters to context
                     for generic in generics {
                         self.context.push_generic(generic.clone());
                     }
-                    
+
                     self.context.define_struct(name.clone(), field_types);
-                    
+
+                    // Register methods as functions with struct name prefix
+                    for method in methods {
+                        let method_name = format!("{}.{}", name, method.name);
+                        let sig = self.infer_function_signature(method);
+                        self.context.insert_function(method_name.clone(), sig);
+                    }
+
                     // Pop generic parameters
                     for _ in generics {
                         self.context.pop_generic();
@@ -133,9 +175,7 @@ impl TypeChecker {
         for statement in &program.statements {
             if let Statement::Function(function) = statement {
                 let sig = self.infer_function_signature(function);
-                self.context
-                    .functions
-                    .insert(function.name.clone(), sig);
+                self.context.functions.insert(function.name.clone(), sig);
             }
         }
 
@@ -162,11 +202,7 @@ impl TypeChecker {
         }
 
         if !self.errors.is_empty() {
-            let error_messages: Vec<String> = self
-                .errors
-                .iter()
-                .map(|e| e.to_string())
-                .collect();
+            let error_messages: Vec<String> = self.errors.iter().map(|e| e.to_string()).collect();
             bail!("type checking failed:\n{}", error_messages.join("\n\n"));
         }
 
@@ -174,34 +210,67 @@ impl TypeChecker {
     }
 
     /// Infer function signature from declaration
-    fn infer_function_signature(&self, function: &Function) -> TypeInfo {
-        let param_types: Vec<TypeInfo> = function
-            .params
-            .iter()
-            .map(|p| {
-                if let Some(ty) = &p.ty {
-                    // Resolve type aliases
-                    let type_info = TypeInfo::from(ty);
-                    // Check if it's a type alias
-                    if let TypeInfo::Generic { base, args } = &type_info {
-                        if args.is_empty() {
-                            // Could be a type alias or generic parameter
-                            if let Some(aliased_type) = self.context.resolve_type_alias(base) {
-                                aliased_type.clone()
-                            } else {
-                                type_info
-                            }
+    fn infer_function_signature(&mut self, function: &Function) -> TypeInfo {
+        let mut param_types = Vec::new();
+        let mut param_defaults = Vec::new();
+        let mut seen_default = false;
+
+        for param in &function.params {
+            let explicit_type = param.ty.as_ref().map(TypeInfo::from);
+            let resolved_type = if let Some(ty) = &explicit_type {
+                if let TypeInfo::Generic { base, args } = ty {
+                    if args.is_empty() {
+                        if let Some(aliased_type) = self.context.resolve_type_alias(base) {
+                            aliased_type.clone()
                         } else {
-                            type_info
+                            ty.clone()
                         }
                     } else {
-                        type_info
+                        ty.clone()
                     }
                 } else {
-                    TypeInfo::Unknown
+                    ty.clone()
                 }
-            })
-            .collect();
+            } else {
+                TypeInfo::Unknown
+            };
+
+            param_types.push(resolved_type.clone());
+
+            if let Some(default_expr) = &param.default {
+                seen_default = true;
+                param_defaults.push(true);
+                if let Ok(default_type) = self.infer_expr_type(default_expr) {
+                    if let Some(expected) = &explicit_type {
+                        if !default_type.is_compatible_with(expected) {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "default value for parameter `{}` has type {}, expected {}",
+                                    param.name,
+                                    default_type.display_name(),
+                                    expected.display_name()
+                                ))
+                                .with_hint(
+                                    "Ensure the default expression matches the declared parameter type"
+                                        .to_string(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            } else {
+                if seen_default {
+                    self.errors.push(
+                        TypeError::new(format!(
+                            "parameter `{}` without default cannot follow parameters with defaults",
+                            param.name
+                        ))
+                        .with_hint("Move parameters without defaults before parameters that specify defaults".to_string()),
+                    );
+                }
+                param_defaults.push(false);
+            }
+        }
 
         let return_type = if let Some(ty) = &function.ret_ty {
             let type_info = TypeInfo::from(ty);
@@ -225,6 +294,7 @@ impl TypeChecker {
 
         TypeInfo::Function {
             params: param_types,
+            param_defaults,
             return_type: Box::new(return_type),
         }
     }
@@ -232,7 +302,7 @@ impl TypeChecker {
     /// Type check a function
     fn check_function(&mut self, function: &Function) -> Result<()> {
         let mut fn_context = TypeContext::new();
-        
+
         // Add function parameters to context
         for param in &function.params {
             let param_type = if let Some(ty) = &param.ty {
@@ -262,14 +332,14 @@ impl TypeChecker {
     fn check_function_with_generics(&mut self, function: &Function) -> Result<()> {
         // Extract generic type parameters from function signature
         let mut generic_params = Vec::new();
-        
+
         // Check parameter types for generic parameters
         for param in &function.params {
             if let Some(ty) = &param.ty {
                 self.extract_generic_params(ty, &mut generic_params);
             }
         }
-        
+
         if let Some(ret_ty) = &function.ret_ty {
             self.extract_generic_params(ret_ty, &mut generic_params);
         }
@@ -340,7 +410,10 @@ impl TypeChecker {
                     .ok_or_else(|| {
                         TypeError::new(format!("undefined variable: {}", name))
                             .with_hint(format!("did you mean to declare it with `let {}`?", name))
-                            .with_help("Variables must be declared with `let` before they can be assigned".to_string())
+                            .with_help(
+                                "Variables must be declared with `let` before they can be assigned"
+                                    .to_string(),
+                            )
                     })?
                     .clone();
 
@@ -377,12 +450,36 @@ impl TypeChecker {
                     self.check_block(block)?;
                 }
             }
-            Statement::For { var, iterable, body } => {
-                let _iter_type = self.infer_expr_type(iterable)?;
-                // For now, assume iterable is a range or collection
-                // TODO: Add proper iteration type checking
-                self.context.insert_variable(var.clone(), TypeInfo::I32);
+            Statement::For {
+                var,
+                iterable,
+                body,
+            } => {
+                let iter_type = self.infer_expr_type(iterable)?;
+                let element_type = match &iter_type {
+                    TypeInfo::List(elem) => elem.as_ref().clone(),
+                    TypeInfo::Dict { value, .. } => value.as_ref().clone(),
+                    TypeInfo::Str => TypeInfo::Str,
+                    _ => {
+                        self.errors.push(TypeError::new(format!(
+                            "cannot iterate over type {}",
+                            iter_type.display_name()
+                        )));
+                        TypeInfo::Unknown
+                    }
+                };
+
+                let previous = self.context.remove_variable(var);
+                self.context.insert_variable(var.clone(), element_type);
                 self.check_block(body)?;
+                match previous {
+                    Some(prev) => {
+                        self.context.insert_variable(var.clone(), prev);
+                    }
+                    None => {
+                        self.context.remove_variable(var);
+                    }
+                }
             }
             Statement::While { cond, body } => {
                 let cond_type = self.infer_expr_type(cond)?;
@@ -410,6 +507,9 @@ impl TypeChecker {
             Statement::Break | Statement::Continue => {
                 // These are handled by loop context
             }
+            Statement::Pass => {
+                // No-op
+            }
             Statement::Use { .. } => {
                 // Module imports are handled separately
             }
@@ -422,518 +522,901 @@ impl TypeChecker {
             Statement::Block(block) => {
                 self.check_block(block)?;
             }
+            Statement::Try {
+                body,
+                handlers,
+                else_block,
+                finally_block,
+            } => {
+                // Type check the try body
+                self.check_block(body)?;
+
+                // Type check each handler
+                for handler in handlers {
+                    if let Some(exception_type) = &handler.exception {
+                        // Convert AST type to TypeInfo
+                        let handler_ty = TypeInfo::from(exception_type);
+                        // Validate that handler type is compatible with Error
+                        if !handler_ty.is_compatible_with(&TypeInfo::Error) {
+                            self.errors.push(TypeError::new(format!(
+                                "Exception handler type '{}' is not compatible with Error type",
+                                handler_ty.display_name()
+                            )));
+                        }
+                    }
+
+                    // Create a new scope for the handler body
+                    let original_vars = self.context.variables.clone();
+                    if let Some(alias) = &handler.alias {
+                        // Bind the exception variable in the handler scope
+                        self.context.insert_variable(alias.clone(), TypeInfo::Error);
+                    }
+
+                    // Type check the handler body in the scoped context
+                    self.check_block(&handler.body)?;
+
+                    // Restore the original variable context (handler variables don't leak)
+                    self.context.variables = original_vars;
+                }
+
+                // Type check else block if present (runs when no exception)
+                if let Some(else_block) = else_block {
+                    self.check_block(else_block)?;
+                }
+
+                // Type check finally block if present (always runs)
+                if let Some(finally_block) = finally_block {
+                    self.check_block(finally_block)?;
+                }
+            }
+            Statement::Raise(expr) => {
+                if let Some(expr) = expr {
+                    // Type check the expression being raised
+                    let expr_ty = self.infer_expr_type(expr)?;
+                    // The raised expression must be Error-compatible
+                    if !expr_ty.is_compatible_with(&TypeInfo::Error) {
+                        self.errors.push(TypeError::new(format!(
+                            "Cannot raise expression of type '{}', must be Error-compatible",
+                            expr_ty.display_name()
+                        )));
+                    }
+                } else {
+                    // Bare raise statement - only valid inside exception handlers
+                    // For now, we'll allow it (checked at runtime)
+                }
+            }
         }
         Ok(())
     }
 
     /// Infer the type of an expression
     pub fn infer_expr_type(&mut self, expr: &Expr) -> Result<TypeInfo> {
-        match expr {
-            Expr::Literal(lit) => Ok(match lit {
-                Literal::Number(_num) => {
-                    // Always infer numeric literals as F64 for simplicity and to avoid
-                    // type inference issues with float contexts
-                    // This matches Python's behavior where all numbers are floats by default
-                    TypeInfo::F64
-                }
-                Literal::String(_) => TypeInfo::Str,
-                Literal::Bool(_) => TypeInfo::Bool,
-                Literal::Unit => TypeInfo::Unit,
-            }),
-            Expr::Identifier(name) => {
-                self.context
-                    .get_variable(name)
-                    .cloned()
-                    .ok_or_else(|| {
+        let ty = (|| -> Result<TypeInfo> {
+            match expr {
+                Expr::Literal(lit) => Ok(match lit {
+                    Literal::Number(_num) => {
+                        // Always infer numeric literals as F64 for simplicity and to avoid
+                        // type inference issues with float contexts
+                        // This matches Python's behavior where all numbers are floats by default
+                        TypeInfo::F64
+                    }
+                    Literal::String(_) => TypeInfo::Str,
+                    Literal::Bool(_) => TypeInfo::Bool,
+                    Literal::None => TypeInfo::Unit,
+                    Literal::Unit => TypeInfo::Unit,
+                }),
+                Expr::Identifier(name) => {
+                    self.context.get_variable(name).cloned().ok_or_else(|| {
                         let err = TypeError::new(format!("undefined variable: {}", name))
                             .with_hint(format!("did you mean to declare it with `let {}`?", name))
                             .with_help("Variables must be declared before use".to_string());
                         anyhow::Error::from(err)
                     })
-            }
-            Expr::Binary { op, left, right } => {
-                let left_type = self.infer_expr_type(left)?;
-                let right_type = self.infer_expr_type(right)?;
+                }
+                Expr::Binary { op, left, right } => {
+                    let left_type = self.infer_expr_type(left)?;
+                    let right_type = self.infer_expr_type(right)?;
 
-                match op {
-                    crate::ast::nodes::BinaryOp::Add
-                    | crate::ast::nodes::BinaryOp::Sub
-                    | crate::ast::nodes::BinaryOp::Mul
-                    | crate::ast::nodes::BinaryOp::Div => {
-                        // Numeric operations
-                        match (&left_type, &right_type) {
-                            (TypeInfo::F64, _) | (_, TypeInfo::F64) => Ok(TypeInfo::F64),
-                            (TypeInfo::I64, _) | (_, TypeInfo::I64) => Ok(TypeInfo::I64),
-                            (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
-                            (TypeInfo::Str, TypeInfo::Str) if matches!(op, crate::ast::nodes::BinaryOp::Add) => Ok(TypeInfo::Str),
-                            _ => {
+                    match op {
+                        crate::ast::nodes::BinaryOp::Add
+                        | crate::ast::nodes::BinaryOp::Sub
+                        | crate::ast::nodes::BinaryOp::Mul
+                        | crate::ast::nodes::BinaryOp::Div => {
+                            // Numeric operations
+                            match (&left_type, &right_type) {
+                                (TypeInfo::F64, _) | (_, TypeInfo::F64) => Ok(TypeInfo::F64),
+                                (TypeInfo::I64, _) | (_, TypeInfo::I64) => Ok(TypeInfo::I64),
+                                (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
+                                (TypeInfo::Str, TypeInfo::Str)
+                                    if matches!(op, crate::ast::nodes::BinaryOp::Add) =>
+                                {
+                                    Ok(TypeInfo::Str)
+                                }
+                                _ => {
+                                    self.errors.push(TypeError::new(format!(
+                                        "cannot apply {} to {} and {}",
+                                        format!("{:?}", op),
+                                        left_type.display_name(),
+                                        right_type.display_name()
+                                    )));
+                                    Ok(TypeInfo::Error)
+                                }
+                            }
+                        }
+                        crate::ast::nodes::BinaryOp::Eq
+                        | crate::ast::nodes::BinaryOp::Ne
+                        | crate::ast::nodes::BinaryOp::Lt
+                        | crate::ast::nodes::BinaryOp::LtEq
+                        | crate::ast::nodes::BinaryOp::Gt
+                        | crate::ast::nodes::BinaryOp::GtEq => {
+                            // Comparison operations return bool
+                            if left_type.is_compatible_with(&right_type) {
+                                Ok(TypeInfo::Bool)
+                            } else {
                                 self.errors.push(TypeError::new(format!(
-                                    "cannot apply {} to {} and {}",
-                                    format!("{:?}", op),
+                                    "cannot compare {} and {}",
                                     left_type.display_name(),
                                     right_type.display_name()
                                 )));
                                 Ok(TypeInfo::Error)
                             }
                         }
-                    }
-                    crate::ast::nodes::BinaryOp::Eq
-                    | crate::ast::nodes::BinaryOp::Ne
-                    | crate::ast::nodes::BinaryOp::Lt
-                    | crate::ast::nodes::BinaryOp::LtEq
-                    | crate::ast::nodes::BinaryOp::Gt
-                    | crate::ast::nodes::BinaryOp::GtEq => {
-                        // Comparison operations return bool
-                        if left_type.is_compatible_with(&right_type) {
-                            Ok(TypeInfo::Bool)
-                        } else {
-                            self.errors.push(TypeError::new(format!(
-                                "cannot compare {} and {}",
-                                left_type.display_name(),
-                                right_type.display_name()
-                            )));
-                            Ok(TypeInfo::Error)
-                        }
-                    }
-                    crate::ast::nodes::BinaryOp::And | crate::ast::nodes::BinaryOp::Or => {
-                        // Logical operations require bool operands
-                        if left_type.is_compatible_with(&TypeInfo::Bool)
-                            && right_type.is_compatible_with(&TypeInfo::Bool)
-                        {
-                            Ok(TypeInfo::Bool)
-                        } else {
-                            self.errors.push(TypeError::new(format!(
-                                "logical operations require bool operands, got {} and {}",
-                                left_type.display_name(),
-                                right_type.display_name()
-                            )));
-                            Ok(TypeInfo::Error)
-                        }
-                    }
-                    crate::ast::nodes::BinaryOp::Mod => {
-                        // Modulo requires integer operands
-                        match (&left_type, &right_type) {
-                            (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
-                            (TypeInfo::I64, TypeInfo::I64) => Ok(TypeInfo::I64),
-                            _ => {
+                        crate::ast::nodes::BinaryOp::Is | crate::ast::nodes::BinaryOp::IsNot => {
+                            // Identity comparison allows matching types or comparisons with None
+                            let allow = left_type.is_compatible_with(&right_type)
+                                || right_type.is_compatible_with(&left_type)
+                                || matches!(left_type, TypeInfo::Unit)
+                                || matches!(right_type, TypeInfo::Unit)
+                                || matches!(left_type, TypeInfo::Unknown)
+                                || matches!(right_type, TypeInfo::Unknown);
+
+                            if allow {
+                                Ok(TypeInfo::Bool)
+                            } else {
                                 self.errors.push(TypeError::new(format!(
-                                    "modulo requires integer operands, got {} and {}",
+                                    "cannot use `is` between {} and {}",
                                     left_type.display_name(),
                                     right_type.display_name()
                                 )));
                                 Ok(TypeInfo::Error)
                             }
                         }
-                    }
-                }
-            }
-            Expr::Unary { op, expr } => {
-                let expr_type = self.infer_expr_type(expr)?;
-                match op {
-                    crate::ast::nodes::UnaryOp::Not => {
-                        if expr_type.is_compatible_with(&TypeInfo::Bool) {
-                            Ok(TypeInfo::Bool)
-                        } else {
-                            self.errors.push(TypeError::new(format!(
-                                "not operator requires bool operand, got {}",
-                                expr_type.display_name()
-                            )));
-                            Ok(TypeInfo::Error)
+                        crate::ast::nodes::BinaryOp::And | crate::ast::nodes::BinaryOp::Or => {
+                            // Logical operations require bool operands
+                            if left_type.is_compatible_with(&TypeInfo::Bool)
+                                && right_type.is_compatible_with(&TypeInfo::Bool)
+                            {
+                                Ok(TypeInfo::Bool)
+                            } else {
+                                self.errors.push(TypeError::new(format!(
+                                    "logical operations require bool operands, got {} and {}",
+                                    left_type.display_name(),
+                                    right_type.display_name()
+                                )));
+                                Ok(TypeInfo::Error)
+                            }
+                        }
+                        crate::ast::nodes::BinaryOp::Mod => {
+                            // Modulo requires integer operands
+                            match (&left_type, &right_type) {
+                                (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
+                                (TypeInfo::I64, TypeInfo::I64) => Ok(TypeInfo::I64),
+                                _ => {
+                                    self.errors.push(TypeError::new(format!(
+                                        "modulo requires integer operands, got {} and {}",
+                                        left_type.display_name(),
+                                        right_type.display_name()
+                                    )));
+                                    Ok(TypeInfo::Error)
+                                }
+                            }
                         }
                     }
-                    crate::ast::nodes::UnaryOp::Neg => {
-                        if expr_type.is_compatible_with(&TypeInfo::I32)
-                            || expr_type.is_compatible_with(&TypeInfo::I64)
-                            || expr_type.is_compatible_with(&TypeInfo::F64)
-                        {
-                            Ok(expr_type)
-                        } else {
-                            self.errors.push(TypeError::new(format!(
-                                "negation requires numeric operand, got {}",
-                                expr_type.display_name()
-                            )));
-                            Ok(TypeInfo::Error)
+                }
+                Expr::Unary { op, expr } => {
+                    let expr_type = self.infer_expr_type(expr)?;
+                    match op {
+                        crate::ast::nodes::UnaryOp::Not => {
+                            if expr_type.is_compatible_with(&TypeInfo::Bool) {
+                                Ok(TypeInfo::Bool)
+                            } else {
+                                self.errors.push(TypeError::new(format!(
+                                    "not operator requires bool operand, got {}",
+                                    expr_type.display_name()
+                                )));
+                                Ok(TypeInfo::Error)
+                            }
+                        }
+                        crate::ast::nodes::UnaryOp::Neg => {
+                            if expr_type.is_compatible_with(&TypeInfo::I32)
+                                || expr_type.is_compatible_with(&TypeInfo::I64)
+                                || expr_type.is_compatible_with(&TypeInfo::F64)
+                            {
+                                Ok(expr_type)
+                            } else {
+                                self.errors.push(TypeError::new(format!(
+                                    "negation requires numeric operand, got {}",
+                                    expr_type.display_name()
+                                )));
+                                Ok(TypeInfo::Error)
+                            }
                         }
                     }
                 }
-            }
-            Expr::Call { func, args } => {
-                let func_type = match func.as_ref() {
-                    Expr::Identifier(name) => {
-                        self.context
-                            .get_function(name)
-                            .cloned()
-                            .ok_or_else(|| {
+                Expr::Call { func, args } => {
+                    let func_type = match func.as_ref() {
+                        Expr::Identifier(name) => {
+                            self.context.get_function(name).cloned().ok_or_else(|| {
                                 let err = TypeError::new(format!("undefined function: {}", name));
                                 anyhow::Error::from(err)
                             })?
-                    }
-                    Expr::Member { object, field } => {
-                        // Support module.function() syntax for FFI and stdlib calls
-                        if let Expr::Identifier(module) = object.as_ref() {
-                            let full_name = format!("{}.{}", module, field);
-                            // First check registry for exact FFI signatures
-                            if let Some(registry) = self.registry {
-                                if let Some(symbol) = registry.resolve(&full_name) {
-                                    let params: Vec<TypeInfo> = symbol.signature.params.iter()
-                                        .map(|ft| ffi_type_to_typeinfo(ft))
-                                        .collect();
-                                    let return_type = ffi_type_to_typeinfo(&symbol.signature.result);
-                                    return Ok(TypeInfo::Function {
-                                        params,
-                                        return_type: Box::new(return_type),
-                                    });
+                        }
+                        Expr::Member { object, field } => {
+                            // Support module.function() syntax for FFI and stdlib calls
+                            if let Expr::Identifier(module) = object.as_ref() {
+                                let full_name = format!("{}.{}", module, field);
+                                // First check registry for exact FFI signatures
+                                if let Some(registry) = self.registry {
+                                    if let Some(symbol) = registry.resolve(&full_name) {
+                                        let params: Vec<TypeInfo> = symbol
+                                            .signature
+                                            .params
+                                            .iter()
+                                            .map(|ft| ffi_type_to_typeinfo(ft))
+                                            .collect();
+                                        let return_type =
+                                            ffi_type_to_typeinfo(&symbol.signature.result);
+                                        return Ok(TypeInfo::Function {
+                                            params,
+                                            param_defaults: vec![
+                                                false;
+                                                symbol.signature.params.len()
+                                            ],
+                                            return_type: Box::new(return_type),
+                                        });
+                                    }
+                                }
+                                // Fall back to context functions
+                                self.context
+                                    .get_function(&full_name)
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        // Return a generic function type for unknown FFI functions
+                                        // This allows the code to pass type checking
+                                        TypeInfo::Function {
+                                            params: vec![], // Unknown params
+                                            param_defaults: vec![],
+                                            return_type: Box::new(TypeInfo::Unknown),
+                                        }
+                                    })
+                            } else {
+                                // Method call: obj.method() - infer object type and look up method
+                                let obj_type = self.infer_expr_type(object)?;
+                                if let TypeInfo::Struct { name, .. } = obj_type {
+                                    let method_name = format!("{}.{}", name, field);
+                                    self.context
+                                        .get_function(&method_name)
+                                        .cloned()
+                                        .unwrap_or_else(|| {
+                                            self.errors.push(TypeError::new(format!(
+                                                "struct '{}' has no method '{}'",
+                                                name, field
+                                            )));
+                                            TypeInfo::Error
+                                        })
+                                } else {
+                                    self.errors.push(TypeError::new(format!(
+                                        "method calls can only be used on struct instances, got {}",
+                                        obj_type.display_name()
+                                    )));
+                                    TypeInfo::Error
                                 }
                             }
-                            // Fall back to context functions
-                            self.context
-                                .get_function(&full_name)
-                                .cloned()
-                                .unwrap_or_else(|| {
-                                    // Return a generic function type for unknown FFI functions
-                                    // This allows the code to pass type checking
-                                    TypeInfo::Function {
-                                        params: vec![], // Unknown params
-                                        return_type: Box::new(TypeInfo::Unknown),
-                                    }
-                                })
-                        } else {
+                        }
+                        _ => {
                             self.errors.push(TypeError::new(
-                                "function calls must use identifier or module.function syntax".to_string(),
+                                "function calls must use identifier or module.function syntax"
+                                    .to_string(),
                             ));
                             return Ok(TypeInfo::Error);
                         }
-                    }
-                    _ => {
-                        self.errors.push(TypeError::new(
-                            "function calls must use identifier or module.function syntax".to_string(),
-                        ));
-                        return Ok(TypeInfo::Error);
-                    }
-                };
+                    };
 
-                match func_type {
-                    TypeInfo::Function { params, return_type } => {
-                        // Skip arg count check for unknown FFI functions (params empty means unknown)
-                        if !params.is_empty() && args.len() != params.len() {
-                            self.errors.push(TypeError::new(format!(
-                                "function expects {} arguments, got {}",
-                                params.len(),
-                                args.len()
-                            )).with_hint(format!("Check the function signature and provide the correct number of arguments"))
-                            .with_help(format!("Expected: {} parameters, Got: {} arguments", params.len(), args.len())));
-                            return Ok(TypeInfo::Error);
-                        }
+                    match func_type {
+                        TypeInfo::Function {
+                            params,
+                            param_defaults,
+                            return_type,
+                        } => {
+                            if !params.is_empty() {
+                                let total_params = params.len();
+                                let required_params =
+                                    param_defaults.iter().filter(|flag| !**flag).count();
 
-                        // Skip type checking for unknown FFI functions
-                        if !params.is_empty() {
-                            for (i, (arg, param_type)) in args.iter().zip(params.iter()).enumerate() {
-                                let arg_type = self.infer_expr_type(arg)?;
-                                if !arg_type.is_compatible_with(param_type) {
-                                    self.errors.push(TypeError::new(format!(
+                                if args.len() > total_params {
+                                    self.errors.push(
+                                    TypeError::new(format!(
+                                        "function expects at most {} arguments, got {}",
+                                        total_params,
+                                        args.len()
+                                    ))
+                                    .with_hint(
+                                        "Remove extra arguments or verify the function signature"
+                                            .to_string(),
+                                    ),
+                                );
+                                    return Ok(TypeInfo::Error);
+                                }
+
+                                if args.len() < required_params {
+                                    self.errors.push(
+                                        TypeError::new(format!(
+                                            "function expects at least {} arguments, got {}",
+                                            required_params,
+                                            args.len()
+                                        ))
+                                        .with_hint(
+                                            "Provide values for all parameters without defaults"
+                                                .to_string(),
+                                        ),
+                                    );
+                                    return Ok(TypeInfo::Error);
+                                }
+
+                                for (i, (arg, param_type)) in
+                                    args.iter().zip(params.iter()).enumerate()
+                                {
+                                    let arg_type = self.infer_expr_type(arg)?;
+                                    if !arg_type.is_compatible_with(param_type) {
+                                        self.errors.push(TypeError::new(format!(
                                         "argument {} type mismatch: expected {}, got {}",
                                         i + 1,
                                         param_type.display_name(),
                                         arg_type.display_name()
-                                    )).with_hint(format!("Argument {} should be of type `{}`", i + 1, param_type.display_name()))
+                                    ))
+                                    .with_hint(format!(
+                                        "Argument {} should be of type `{}`",
+                                        i + 1,
+                                        param_type.display_name()
+                                    ))
                                     .with_help("Check the function signature and ensure argument types match".to_string()));
+                                    }
+                                }
+                            } else {
+                                // For unknown FFI functions, just ensure arguments are type-checked
+                                for arg in args {
+                                    let _ = self.infer_expr_type(arg)?;
                                 }
                             }
-                        } else {
-                            // For unknown FFI functions, just check that expressions are valid
-                            for arg in args {
-                                let _ = self.infer_expr_type(arg)?;
-                            }
+
+                            Ok(*return_type)
                         }
-
-                        Ok(*return_type)
-                    }
-                    _ => {
-                        self.errors.push(TypeError::new(format!(
-                            "cannot call non-function type: {}",
-                            func_type.display_name()
-                        )).with_hint("Only functions can be called".to_string())
-                        .with_help("Check that you're using the correct function name".to_string()));
-                        Ok(TypeInfo::Error)
-                    }
-                }
-            }
-            Expr::Range { start, end } => {
-                let start_type = self.infer_expr_type(start)?;
-                let end_type = self.infer_expr_type(end)?;
-                
-                if start_type.is_compatible_with(&end_type) {
-                    Ok(TypeInfo::Unknown) // Ranges are used for iteration
-                } else {
-                    self.errors.push(TypeError::new(format!(
-                        "range bounds must have compatible types, got {} and {}",
-                        start_type.display_name(),
-                        end_type.display_name()
-                    )));
-                    Ok(TypeInfo::Error)
-                }
-            }
-            Expr::If { cond, then_branch, else_branch } => {
-                let cond_type = self.infer_expr_type(cond)?;
-                if !cond_type.is_compatible_with(&TypeInfo::Bool) {
-                    self.errors.push(TypeError::new(format!(
-                        "if condition must be bool, got {}",
-                        cond_type.display_name()
-                    )));
-                }
-
-                let then_type = self.infer_expr_type(then_branch)?;
-                if let Some(else_expr) = else_branch {
-                    let else_type = self.infer_expr_type(else_expr)?;
-
-                    if then_type.is_compatible_with(&else_type) {
-                        Ok(then_type)
-                    } else {
-                        self.errors.push(TypeError::new(format!(
-                            "if branches must have compatible types, got {} and {}",
-                            then_type.display_name(),
-                            else_type.display_name()
-                        )));
-                        Ok(TypeInfo::Error)
-                    }
-                } else {
-                    // If expression without else returns unit
-                    Ok(TypeInfo::Unit)
-                }
-            }
-            Expr::Member { object, field } => {
-                let object_type = self.infer_expr_type(object)?;
-                match &object_type {
-                    TypeInfo::Struct { fields, .. } => {
-                        if let Some(field_type) = fields.get(field) {
-                            Ok(field_type.clone())
-                        } else {
-                            self.errors.push(TypeError::new(format!(
-                                "struct has no field '{}'",
-                                field
-                            )).with_hint(format!("Check the struct definition for available fields")));
+                        _ => {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "cannot call non-function type: {}",
+                                    func_type.display_name()
+                                ))
+                                .with_hint("Only functions can be called".to_string())
+                                .with_help(
+                                    "Check that you're using the correct function name".to_string(),
+                                ),
+                            );
                             Ok(TypeInfo::Error)
                         }
                     }
-                    TypeInfo::Generic { base, .. } if base == "Array" || base == "List" => {
-                        // Array/list member access - could be indexing or method call
-                        // For now, assume it's a method/property access
-                        Ok(TypeInfo::Unknown)
-                    }
-                    _ => {
+                }
+                Expr::Range { start, end } => {
+                    let start_type = self.infer_expr_type(start)?;
+                    let end_type = self.infer_expr_type(end)?;
+
+                    if start_type.is_compatible_with(&end_type) {
+                        Ok(TypeInfo::Unknown) // Ranges are used for iteration
+                    } else {
                         self.errors.push(TypeError::new(format!(
-                            "cannot access member '{}' on type {}",
-                            field,
-                            object_type.display_name()
-                        )).with_hint(format!("Only struct types support member access")));
+                            "range bounds must have compatible types, got {} and {}",
+                            start_type.display_name(),
+                            end_type.display_name()
+                        )));
                         Ok(TypeInfo::Error)
                     }
                 }
-            }
-            Expr::FString { parts } => {
-                // F-strings always evaluate to strings
-                // Type check all embedded expressions
-                for part in parts {
-                    if let crate::ast::nodes::FStringPart::Expr(expr) = part {
-                        let _ = self.infer_expr_type(expr)?;
-                        // We don't care about the type, just that it's valid
+                Expr::If {
+                    cond,
+                    then_branch,
+                    else_branch,
+                } => {
+                    let cond_type = self.infer_expr_type(cond)?;
+                    if !cond_type.is_compatible_with(&TypeInfo::Bool) {
+                        self.errors.push(TypeError::new(format!(
+                            "if condition must be bool, got {}",
+                            cond_type.display_name()
+                        )));
+                    }
+
+                    let then_type = self.infer_expr_type(then_branch)?;
+                    if let Some(else_expr) = else_branch {
+                        let else_type = self.infer_expr_type(else_expr)?;
+
+                        if then_type.is_compatible_with(&else_type) {
+                            Ok(then_type)
+                        } else {
+                            self.errors.push(TypeError::new(format!(
+                                "if branches must have compatible types, got {} and {}",
+                                then_type.display_name(),
+                                else_type.display_name()
+                            )));
+                            Ok(TypeInfo::Error)
+                        }
+                    } else {
+                        // If expression without else returns unit
+                        Ok(TypeInfo::Unit)
                     }
                 }
-                Ok(TypeInfo::Str)
-            }
-            Expr::Lambda { params, ret_ty, body } => {
-                // Create a new context for the lambda
-                let mut lambda_context = self.context.clone();
-                
-                // Add lambda parameters to context
-                let mut param_types = Vec::new();
-                for param in params {
-                    let param_type = if let Some(ty) = &param.ty {
+                Expr::Member { object, field } => {
+                    let object_type = self.infer_expr_type(object)?;
+                    match &object_type {
+                        TypeInfo::Struct { fields, .. } => {
+                            if let Some(field_type) = fields.get(field) {
+                                Ok(field_type.clone())
+                            } else {
+                                self.errors.push(
+                                    TypeError::new(format!("struct has no field '{}'", field))
+                                        .with_hint(format!(
+                                            "Check the struct definition for available fields"
+                                        )),
+                                );
+                                Ok(TypeInfo::Error)
+                            }
+                        }
+                        TypeInfo::List(_) => Ok(TypeInfo::Unknown),
+                        TypeInfo::Dict { .. } => Ok(TypeInfo::Unknown),
+                        _ => {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "cannot access member '{}' on type {}",
+                                    field,
+                                    object_type.display_name()
+                                ))
+                                .with_hint(format!("Only struct types support member access")),
+                            );
+                            Ok(TypeInfo::Error)
+                        }
+                    }
+                }
+                Expr::FString { parts } => {
+                    // F-strings always evaluate to strings
+                    // Type check all embedded expressions
+                    for part in parts {
+                        if let crate::ast::nodes::FStringPart::Expr(expr) = part {
+                            let _ = self.infer_expr_type(expr)?;
+                            // We don't care about the type, just that it's valid
+                        }
+                    }
+                    Ok(TypeInfo::Str)
+                }
+                Expr::Lambda {
+                    params,
+                    ret_ty,
+                    body,
+                } => {
+                    // Create a new context for the lambda
+                    let mut lambda_context = self.context.clone();
+
+                    // Add lambda parameters to context
+                    let mut param_types = Vec::new();
+                    let mut param_defaults = Vec::new();
+                    for param in params {
+                        let param_type = if let Some(ty) = &param.ty {
+                            TypeInfo::from(ty)
+                        } else {
+                            TypeInfo::Unknown
+                        };
+                        param_types.push(param_type.clone());
+                        lambda_context.insert_variable(param.name.clone(), param_type);
+                        param_defaults.push(param.default.is_some());
+                    }
+
+                    // Type check lambda body
+                    let old_context = std::mem::replace(&mut self.context, lambda_context);
+                    let body_result = self.check_block(body);
+                    self.context = old_context;
+
+                    if body_result.is_err() {
+                        return Ok(TypeInfo::Error);
+                    }
+
+                    let return_type = if let Some(ty) = ret_ty {
                         TypeInfo::from(ty)
                     } else {
-                        TypeInfo::Unknown
+                        // Try to infer return type from body
+                        // For now, assume unit if no return statement
+                        TypeInfo::Unit
                     };
-                    param_types.push(param_type.clone());
-                    lambda_context.insert_variable(param.name.clone(), param_type);
-                }
 
-                // Type check lambda body
-                let old_context = std::mem::replace(&mut self.context, lambda_context);
-                let body_result = self.check_block(body);
-                self.context = old_context;
-
-                if body_result.is_err() {
-                    return Ok(TypeInfo::Error);
-                }
-
-                let return_type = if let Some(ty) = ret_ty {
-                    TypeInfo::from(ty)
-                } else {
-                    // Try to infer return type from body
-                    // For now, assume unit if no return statement
-                    TypeInfo::Unit
-                };
-
-                Ok(TypeInfo::Function {
-                    params: param_types,
-                    return_type: Box::new(return_type),
-                })
-            }
-            Expr::Array(elements) => {
-                if elements.is_empty() {
-                    // Empty array - can't infer element type
-                    Ok(TypeInfo::Generic {
-                        base: "Array".to_string(),
-                        args: vec![TypeInfo::Unknown],
+                    Ok(TypeInfo::Function {
+                        params: param_types,
+                        param_defaults,
+                        return_type: Box::new(return_type),
                     })
-                } else {
-                    // Infer common element type
-                    let mut element_types: Vec<TypeInfo> = elements
-                        .iter()
-                        .map(|e| self.infer_expr_type(e))
-                        .collect::<Result<Vec<_>>>()?;
+                }
+                Expr::Array(elements) => {
+                    if elements.is_empty() {
+                        // Empty array - can't infer element type
+                        Ok(TypeInfo::List(Box::new(TypeInfo::Unknown)))
+                    } else {
+                        // Infer common element type
+                        let mut element_types: Vec<TypeInfo> = elements
+                            .iter()
+                            .map(|e| self.infer_expr_type(e))
+                            .collect::<Result<Vec<_>>>()?;
 
-                    // Find common type (use first element's type for now)
-                    let common_type = element_types.remove(0);
-                    
-                    // Check all elements are compatible
-                    for (i, elem_type) in element_types.iter().enumerate() {
-                        if !common_type.is_compatible_with(elem_type) && !elem_type.is_compatible_with(&common_type) {
-                            self.errors.push(TypeError::new(format!(
-                                "array element {} has incompatible type: expected {}, got {}",
-                                i + 1,
-                                common_type.display_name(),
-                                elem_type.display_name()
-                            )).with_hint("All array elements must have compatible types".to_string()));
+                        // Find common type (use first element's type for now)
+                        let common_type = element_types.remove(0);
+
+                        // Check all elements are compatible
+                        for (i, elem_type) in element_types.iter().enumerate() {
+                            if !common_type.is_compatible_with(elem_type)
+                                && !elem_type.is_compatible_with(&common_type)
+                            {
+                                self.errors.push(
+                                    TypeError::new(format!(
+                                    "array element {} has incompatible type: expected {}, got {}",
+                                    i + 1,
+                                    common_type.display_name(),
+                                    elem_type.display_name()
+                                ))
+                                    .with_hint(
+                                        "All array elements must have compatible types".to_string(),
+                                    ),
+                                );
+                            }
                         }
-                    }
 
-                    Ok(TypeInfo::Generic {
-                        base: "Array".to_string(),
-                        args: vec![common_type],
-                    })
+                        Ok(TypeInfo::List(Box::new(common_type)))
+                    }
                 }
-            }
-            Expr::Dict(entries) => {
-                if entries.is_empty() {
-                    // Empty dictionary - can't infer key/value types
-                    Ok(TypeInfo::Generic {
-                        base: "Dict".to_string(),
-                        args: vec![TypeInfo::Unknown, TypeInfo::Unknown],
-                    })
-                } else {
-                    // Infer common key and value types
-                    let mut key_types = Vec::new();
-                    let mut value_types = Vec::new();
+                Expr::Dict(entries) => {
+                    if entries.is_empty() {
+                        // Empty dictionary - can't infer key/value types
+                        Ok(TypeInfo::Dict {
+                            key: Box::new(TypeInfo::Unknown),
+                            value: Box::new(TypeInfo::Unknown),
+                        })
+                    } else {
+                        // Infer common key and value types
+                        let mut key_types = Vec::new();
+                        let mut value_types = Vec::new();
 
-                    for (key_expr, value_expr) in entries {
-                        key_types.push(self.infer_expr_type(key_expr)?);
-                        value_types.push(self.infer_expr_type(value_expr)?);
-                    }
-
-                    // Find common types
-                    let common_key_type = key_types.remove(0);
-                    let common_value_type = value_types.remove(0);
-
-                    // Check all keys and values are compatible
-                    for (i, key_type) in key_types.iter().enumerate() {
-                        if !common_key_type.is_compatible_with(key_type) {
-                            self.errors.push(TypeError::new(format!(
-                                "dictionary key {} has incompatible type: expected {}, got {}",
-                                i + 1,
-                                common_key_type.display_name(),
-                                key_type.display_name()
-                            )).with_hint("All dictionary keys must have compatible types".to_string()));
+                        for (key_expr, value_expr) in entries {
+                            key_types.push(self.infer_expr_type(key_expr)?);
+                            value_types.push(self.infer_expr_type(value_expr)?);
                         }
-                    }
 
-                    for (i, value_type) in value_types.iter().enumerate() {
-                        if !common_value_type.is_compatible_with(value_type) {
-                            self.errors.push(TypeError::new(format!(
+                        // Find common types
+                        let common_key_type = key_types.remove(0);
+                        let common_value_type = value_types.remove(0);
+
+                        // Check all keys and values are compatible
+                        for (i, key_type) in key_types.iter().enumerate() {
+                            if !common_key_type.is_compatible_with(key_type) {
+                                self.errors.push(
+                                    TypeError::new(format!(
+                                    "dictionary key {} has incompatible type: expected {}, got {}",
+                                    i + 1,
+                                    common_key_type.display_name(),
+                                    key_type.display_name()
+                                ))
+                                    .with_hint(
+                                        "All dictionary keys must have compatible types"
+                                            .to_string(),
+                                    ),
+                                );
+                            }
+                        }
+
+                        for (i, value_type) in value_types.iter().enumerate() {
+                            if !common_value_type.is_compatible_with(value_type) {
+                                self.errors.push(
+                                    TypeError::new(format!(
                                 "dictionary value {} has incompatible type: expected {}, got {}",
                                 i + 1,
                                 common_value_type.display_name(),
                                 value_type.display_name()
-                            )).with_hint("All dictionary values must have compatible types".to_string()));
+                            ))
+                                    .with_hint(
+                                        "All dictionary values must have compatible types"
+                                            .to_string(),
+                                    ),
+                                );
+                            }
                         }
+
+                        let key_type = if common_key_type.is_compatible_with(&TypeInfo::Str) {
+                            TypeInfo::Str
+                        } else {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "dictionary keys must be str, got {}",
+                                    common_key_type.display_name()
+                                ))
+                                .with_hint(
+                                    "Only string keys are supported for dictionaries currently"
+                                        .to_string(),
+                                ),
+                            );
+                            TypeInfo::Str
+                        };
+
+                        Ok(TypeInfo::Dict {
+                            key: Box::new(key_type),
+                            value: Box::new(common_value_type),
+                        })
                     }
-
-                    Ok(TypeInfo::Generic {
-                        base: "Dict".to_string(),
-                        args: vec![common_key_type, common_value_type],
-                    })
                 }
-            }
-            Expr::Match { value, arms } => {
-                let _value_type = self.infer_expr_type(value)?;
-                
-                if arms.is_empty() {
-                    self.errors.push(TypeError::new(
-                        "match expression must have at least one arm".to_string()
-                    ).with_hint("Add at least one pattern to match against".to_string()));
-                    return Ok(TypeInfo::Error);
-                }
+                Expr::ListComprehension {
+                    element,
+                    var,
+                    iterable,
+                    condition,
+                } => {
+                    let iterable_type = self.infer_expr_type(iterable)?;
+                    let element_iter_type = if let TypeInfo::List(elem) = &iterable_type {
+                        elem.as_ref().clone()
+                    } else {
+                        self.errors.push(TypeError::new(format!(
+                            "list comprehension expects list iterable, got {}",
+                            iterable_type.display_name()
+                        )));
+                        TypeInfo::Unknown
+                    };
 
-                // Type check each arm
-                let mut arm_types = Vec::new();
-                for arm in arms {
-                    // Check pattern matches value type (simplified - just check it's valid)
-                    // TODO: More sophisticated pattern matching type checking
-                    
-                    // Check guard if present
-                    if let Some(guard) = &arm.guard {
-                        let guard_type = self.infer_expr_type(guard)?;
-                        if !guard_type.is_compatible_with(&TypeInfo::Bool) {
+                    let previous = self.context.remove_variable(var);
+                    self.context
+                        .insert_variable(var.clone(), element_iter_type.clone());
+
+                    if let Some(cond_expr) = condition {
+                        let cond_type = self.infer_expr_type(cond_expr)?;
+                        if !cond_type.is_compatible_with(&TypeInfo::Bool) {
                             self.errors.push(TypeError::new(format!(
-                                "match guard must be bool, got {}",
-                                guard_type.display_name()
+                                "list comprehension condition must be bool, got {}",
+                                cond_type.display_name()
                             )));
                         }
                     }
 
-                    // Get arm body type
-                    let body_type = self.infer_expr_type(&arm.body)?;
-                    arm_types.push(body_type);
-                }
+                    let element_type = self.infer_expr_type(element)?;
 
-                // All arms must return compatible types
-                let common_type = arm_types.remove(0);
-                for (i, arm_type) in arm_types.iter().enumerate() {
-                    if !common_type.is_compatible_with(arm_type) {
-                        self.errors.push(TypeError::new(format!(
-                            "match arm {} returns incompatible type: expected {}, got {}",
-                            i + 1,
-                            common_type.display_name(),
-                            arm_type.display_name()
-                        )).with_hint("All match arms must return compatible types".to_string()));
+                    match previous {
+                        Some(prev) => {
+                            self.context.insert_variable(var.clone(), prev);
+                        }
+                        None => {
+                            self.context.remove_variable(var);
+                        }
                     }
-                }
 
-                Ok(common_type)
+                    Ok(TypeInfo::List(Box::new(element_type)))
+                }
+                Expr::DictComprehension {
+                    key,
+                    value,
+                    var,
+                    iterable,
+                    condition,
+                } => {
+                    let iterable_type = self.infer_expr_type(iterable)?;
+                    let element_iter_type = if let TypeInfo::List(elem) = &iterable_type {
+                        elem.as_ref().clone()
+                    } else {
+                        self.errors.push(TypeError::new(format!(
+                            "dict comprehension expects list iterable, got {}",
+                            iterable_type.display_name()
+                        )));
+                        TypeInfo::Unknown
+                    };
+
+                    let previous = self.context.remove_variable(var);
+                    self.context
+                        .insert_variable(var.clone(), element_iter_type.clone());
+
+                    if let Some(cond_expr) = condition {
+                        let cond_type = self.infer_expr_type(cond_expr)?;
+                        if !cond_type.is_compatible_with(&TypeInfo::Bool) {
+                            self.errors.push(TypeError::new(format!(
+                                "dict comprehension condition must be bool, got {}",
+                                cond_type.display_name()
+                            )));
+                        }
+                    }
+
+                    let key_type = self.infer_expr_type(key)?;
+                    if !key_type.is_compatible_with(&TypeInfo::Str) {
+                        self.errors.push(TypeError::new(format!(
+                            "dict comprehension key must be string, got {}",
+                            key_type.display_name()
+                        )));
+                    }
+
+                    let value_type = self.infer_expr_type(value)?;
+
+                    match previous {
+                        Some(prev) => {
+                            self.context.insert_variable(var.clone(), prev);
+                        }
+                        None => {
+                            self.context.remove_variable(var);
+                        }
+                    }
+
+                    Ok(TypeInfo::Dict {
+                        key: Box::new(TypeInfo::Str),
+                        value: Box::new(value_type),
+                    })
+                }
+                Expr::Match { value, arms } => {
+                    let _value_type = self.infer_expr_type(value)?;
+
+                    if arms.is_empty() {
+                        self.errors.push(
+                            TypeError::new(
+                                "match expression must have at least one arm".to_string(),
+                            )
+                            .with_hint("Add at least one pattern to match against".to_string()),
+                        );
+                        return Ok(TypeInfo::Error);
+                    }
+
+                    // Type check each arm
+                    let mut arm_types = Vec::new();
+                    for arm in arms {
+                        // Check pattern matches value type (simplified - just check it's valid)
+                        // TODO: More sophisticated pattern matching type checking
+
+                        // Check guard if present
+                        if let Some(guard) = &arm.guard {
+                            let guard_type = self.infer_expr_type(guard)?;
+                            if !guard_type.is_compatible_with(&TypeInfo::Bool) {
+                                self.errors.push(TypeError::new(format!(
+                                    "match guard must be bool, got {}",
+                                    guard_type.display_name()
+                                )));
+                            }
+                        }
+
+                        // Get arm body type
+                        let body_type = self.infer_expr_type(&arm.body)?;
+                        arm_types.push(body_type);
+                    }
+
+                    // All arms must return compatible types
+                    let common_type = arm_types.remove(0);
+                    for (i, arm_type) in arm_types.iter().enumerate() {
+                        if !common_type.is_compatible_with(arm_type) {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "match arm {} returns incompatible type: expected {}, got {}",
+                                    i + 1,
+                                    common_type.display_name(),
+                                    arm_type.display_name()
+                                ))
+                                .with_hint(
+                                    "All match arms must return compatible types".to_string(),
+                                ),
+                            );
+                        }
+                    }
+
+                    Ok(common_type)
+                }
+                Expr::Struct { name, fields } => {
+                    // Get struct definition (clone to avoid borrow checker issues)
+                    let struct_fields = match self.context.get_struct(name) {
+                        Some(fields) => fields.clone(),
+                        None => {
+                            self.errors.push(
+                                TypeError::new(format!("unknown struct type: {}", name)).with_hint(
+                                    "Check that the struct is defined before use".to_string(),
+                                ),
+                            );
+                            return Ok(TypeInfo::Error);
+                        }
+                    };
+
+                    // Check that all provided fields exist and have correct types
+                    let mut provided_fields = std::collections::HashSet::new();
+                    for (field_name, field_expr) in fields {
+                        if provided_fields.contains(field_name) {
+                            self.errors.push(TypeError::new(format!(
+                                "duplicate field '{}' in struct initialization",
+                                field_name
+                            )));
+                        }
+                        provided_fields.insert(field_name.clone());
+
+                        let field_type = match struct_fields.get(field_name) {
+                            Some(ty) => ty,
+                            None => {
+                                self.errors.push(
+                                    TypeError::new(format!(
+                                        "struct '{}' has no field '{}'",
+                                        name, field_name
+                                    ))
+                                    .with_hint(format!(
+                                        "Available fields: {}",
+                                        struct_fields
+                                            .keys()
+                                            .cloned()
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    )),
+                                );
+                                continue;
+                            }
+                        };
+
+                        let expr_type = self.infer_expr_type(field_expr)?;
+                        if !expr_type.is_compatible_with(field_type) {
+                            self.errors.push(TypeError::new(format!(
+                                "field '{}' of struct '{}' expects type {}, got {}",
+                                field_name,
+                                name,
+                                field_type.display_name(),
+                                expr_type.display_name()
+                            )));
+                        }
+                    }
+
+                    // Check that all required fields are provided (for now, all fields are required)
+                    for field_name in struct_fields.keys() {
+                        if !provided_fields.contains(field_name) {
+                            self.errors.push(TypeError::new(format!(
+                                "missing required field '{}' in struct '{}' initialization",
+                                field_name, name
+                            )));
+                        }
+                    }
+
+                    Ok(TypeInfo::Struct {
+                        name: name.clone(),
+                        fields: struct_fields,
+                    })
+                }
+                Expr::Await(expr) => {
+                    // Await expects an async/awaitable type
+                    // For now, just type check the inner expression
+                    let inner_type = self.infer_expr_type(expr)?;
+
+                    // TODO: Check if inner_type is actually awaitable
+                    // For now, return the inner type
+                    Ok(inner_type)
+                }
+                Expr::Spawn(expr) => {
+                    // Spawn creates a task from an expression
+                    // Type check the inner expression
+                    let _inner_type = self.infer_expr_type(expr)?;
+
+                    // Spawn returns a task handle (for now, return Unknown)
+                    Ok(TypeInfo::Unknown)
+                }
             }
-            Expr::Await(expr) => {
-                // Await expects an async/awaitable type
-                // For now, just type check the inner expression
-                let inner_type = self.infer_expr_type(expr)?;
-                
-                // TODO: Check if inner_type is actually awaitable
-                // For now, return the inner type
-                Ok(inner_type)
-            }
-            Expr::Spawn(expr) => {
-                // Spawn creates a task from an expression
-                // Type check the inner expression
-                let _inner_type = self.infer_expr_type(expr)?;
-                
-                // Spawn returns a task handle (for now, return Unknown)
-                Ok(TypeInfo::Unknown)
-            }
-        }
+        })()?;
+
+        self.record_expr_type(expr, &ty);
+        Ok(ty)
     }
 
     /// Get collected errors
     pub fn errors(&self) -> &[TypeError] {
         &self.errors
+    }
+
+    pub fn expr_type_map(&self) -> &HashMap<usize, TypeInfo> {
+        &self.expr_types
+    }
+
+    pub fn into_expr_type_map(self) -> HashMap<usize, TypeInfo> {
+        self.expr_types
     }
 }
 
@@ -952,18 +1435,23 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
         FfiType::F64 => TypeInfo::F64,
         FfiType::Str => TypeInfo::Str,
         FfiType::Opaque => TypeInfo::I64, // Opaque handles are i64 at type level
+        FfiType::List => TypeInfo::List(Box::new(TypeInfo::Unknown)),
+        FfiType::Map => TypeInfo::Dict {
+            key: Box::new(TypeInfo::Unknown),
+            value: Box::new(TypeInfo::Unknown),
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-        use crate::ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
+    use crate::ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
 
     #[test]
     fn test_type_inference_literal() {
         let mut checker = TypeChecker::new();
-        
+
         let expr = Expr::Literal(Literal::Number(NumberLiteral::new(42.0, false)));
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
@@ -976,14 +1464,17 @@ mod tests {
     #[test]
     fn test_type_inference_binary() {
         let mut checker = TypeChecker::new();
-        
+
         let expr = Expr::Binary {
             op: BinaryOp::Add,
-            left: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(1.0, true)))),
-            right: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(2.0, true)))),
+            left: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(
+                1.0, true,
+            )))),
+            right: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(
+                2.0, true,
+            )))),
         };
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
     }
 }
-

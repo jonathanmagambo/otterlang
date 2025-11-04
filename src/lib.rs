@@ -9,7 +9,7 @@ pub mod module;
 pub mod parser;
 pub mod repl;
 pub mod runtime;
-pub mod typecheck;
 pub mod tools;
+pub mod typecheck;
 pub mod utils;
 pub mod version;

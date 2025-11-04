@@ -23,7 +23,9 @@ impl ReplEngine {
     pub fn new() -> Self {
         ffi::bootstrap_stdlib();
         Self {
-            program: Program { statements: Vec::new() },
+            program: Program {
+                statements: Vec::new(),
+            },
             symbol_registry: ffi::bootstrap_stdlib(),
             executor: None,
             history: Vec::new(),
@@ -54,7 +56,9 @@ impl ReplEngine {
                             continue;
                         }
                         "clear" => {
-                            self.program = Program { statements: Vec::new() };
+                            self.program = Program {
+                                statements: Vec::new(),
+                            };
                             self.executor = None;
                             println!("{}", "Cleared program state.".green());
                             continue;
@@ -102,18 +106,23 @@ impl ReplEngine {
 
     fn evaluate(&mut self, input: &str) -> Result<Option<String>> {
         // Try parsing as statement
-        let tokens = tokenize(input)
-            .map_err(|errors| {
-                anyhow::anyhow!(
-                    "lexing error: {}",
-                    errors.first().map(|e| format!("{:?}", e)).unwrap_or_default()
-                )
-            })?;
+        let tokens = tokenize(input).map_err(|errors| {
+            anyhow::anyhow!(
+                "lexing error: {}",
+                errors
+                    .first()
+                    .map(|e| format!("{:?}", e))
+                    .unwrap_or_default()
+            )
+        })?;
 
         let parsed = parse(&tokens).map_err(|errors| {
             anyhow::anyhow!(
                 "parsing error: {}",
-                errors.first().map(|e| format!("{:?}", e)).unwrap_or_default()
+                errors
+                    .first()
+                    .map(|e| format!("{:?}", e))
+                    .unwrap_or_default()
             )
         })?;
 
@@ -199,11 +208,10 @@ impl ReplEngine {
     fn parse_expression(&self, input: &str) -> Result<Expr> {
         // Simple expression parser - for now, just try to parse as a statement
         // and extract the expression from it
-        let tokens = tokenize(input)
-            .map_err(|_| anyhow::anyhow!("failed to tokenize expression"))?;
-        let program = parse(&tokens)
-            .map_err(|_| anyhow::anyhow!("failed to parse expression"))?;
-        
+        let tokens =
+            tokenize(input).map_err(|_| anyhow::anyhow!("failed to tokenize expression"))?;
+        let program = parse(&tokens).map_err(|_| anyhow::anyhow!("failed to parse expression"))?;
+
         if let Some(Statement::Expr(expr)) = program.statements.first() {
             Ok(expr.clone())
         } else {
@@ -241,4 +249,3 @@ impl Default for ReplEngine {
         Self::new()
     }
 }
-

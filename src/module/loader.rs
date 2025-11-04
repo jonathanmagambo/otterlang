@@ -1,12 +1,12 @@
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::{Context, Result};
 
 use crate::ast::nodes::Program;
 use crate::lexer::tokenize;
-use crate::parser::parse;
 use crate::module::resolver::ModuleResolver;
+use crate::parser::parse;
 
 /// Represents a loaded module with its exports
 #[derive(Debug, Clone)]
@@ -65,7 +65,7 @@ impl ModuleLoader {
     /// Load a module from a path string
     pub fn load(&mut self, module: &str) -> Result<Module> {
         let resolved_path = self.resolver.resolve(module)?;
-        
+
         if let Some(cached) = self.cache.get(&resolved_path) {
             return Ok(cached.clone());
         }
@@ -82,23 +82,21 @@ impl ModuleLoader {
         let source = fs::read_to_string(path)
             .with_context(|| format!("failed to read module file {}", path.display()))?;
 
-        let tokens = tokenize(&source)
-            .map_err(|errors| {
-                anyhow::anyhow!(
-                    "failed to tokenize module {}: {} errors",
-                    path.display(),
-                    errors.len()
-                )
-            })?;
+        let tokens = tokenize(&source).map_err(|errors| {
+            anyhow::anyhow!(
+                "failed to tokenize module {}: {} errors",
+                path.display(),
+                errors.len()
+            )
+        })?;
 
-        let program = parse(&tokens)
-            .map_err(|errors| {
-                anyhow::anyhow!(
-                    "failed to parse module {}: {} errors",
-                    path.display(),
-                    errors.len()
-                )
-            })?;
+        let program = parse(&tokens).map_err(|errors| {
+            anyhow::anyhow!(
+                "failed to parse module {}: {} errors",
+                path.display(),
+                errors.len()
+            )
+        })?;
 
         let exports = self.extract_exports(&program);
 
@@ -178,15 +176,13 @@ mod tests {
     fn test_module_loader() {
         let temp_dir = TempDir::new().unwrap();
         let module_path = temp_dir.path().join("test.otter");
-        
-        fs::write(&module_path, "fn main:\n    print(\"test\")\n")
-            .unwrap();
+
+        fs::write(&module_path, "fn main:\n    print(\"test\")\n").unwrap();
 
         let mut loader = ModuleLoader::new(temp_dir.path().to_path_buf(), None);
         let module = loader.load_file(&module_path).unwrap();
-        
+
         assert_eq!(module.path, module_path);
         assert!(!module.program.statements.is_empty());
     }
 }
-

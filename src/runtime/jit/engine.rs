@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
 use crate::ast::nodes::Program;
-use crate::codegen::{build_shared_library, CodegenOptions, CodegenOptLevel};
+use crate::codegen::{build_shared_library, CodegenOptLevel, CodegenOptions};
 use crate::runtime::symbol_registry::SymbolRegistry;
+use crate::typecheck::TypeChecker;
 
 use super::adaptive::{AdaptiveConcurrencyManager, AdaptiveMemoryManager};
 use super::cache::FunctionCache;
@@ -95,8 +96,8 @@ pub struct JitEngine {
 
 impl JitEngine {
     pub fn new(symbol_registry: &'static SymbolRegistry) -> Result<Self> {
-        let temp_dir = TempDir::new()
-            .map_err(|e| anyhow!("Failed to create temp directory: {}", e))?;
+        let temp_dir =
+            TempDir::new().map_err(|e| anyhow!("Failed to create temp directory: {}", e))?;
 
         Ok(Self {
             context: LlvmContext::create(),
@@ -143,15 +144,26 @@ impl JitEngine {
             inline_threshold: None,
         };
 
-        let artifact = build_shared_library(program, &lib_path, &options)
+        let mut type_checker = TypeChecker::new().with_registry(SymbolRegistry::global());
+        type_checker
+            .check_program(program)
+            .context("Type checking failed during JIT compilation")?;
+        let expr_types = type_checker.into_expr_type_map();
+
+        let artifact = build_shared_library(program, &expr_types, &lib_path, &options)
             .context("Failed to compile program to shared library")?;
 
         let lib_path = artifact.binary;
 
         // Load the shared library
         let library = unsafe {
-            Library::new(&lib_path)
-                .map_err(|e| anyhow!("Failed to load shared library {}: {}", lib_path.display(), e))?
+            Library::new(&lib_path).map_err(|e| {
+                anyhow!(
+                    "Failed to load shared library {}: {}",
+                    lib_path.display(),
+                    e
+                )
+            })?
         };
 
         // Store library
@@ -206,46 +218,41 @@ impl JitEngine {
         name: &str,
         arg_count: usize,
     ) -> Result<FunctionPtr> {
-        let name_cstr = CString::new(name)
-            .map_err(|e| anyhow!("Invalid function name '{}': {}", name, e))?;
+        let name_cstr =
+            CString::new(name).map_err(|e| anyhow!("Invalid function name '{}': {}", name, e))?;
 
         // Try different function signatures based on argument count
         unsafe {
             match arg_count {
                 0 => {
-                    let sym: Symbol<unsafe extern "C" fn() -> u64> =
-                        library.get(name_cstr.as_bytes()).map_err(|e| {
-                            anyhow!("Failed to load function '{}': {}", name, e)
-                        })?;
+                    let sym: Symbol<unsafe extern "C" fn() -> u64> = library
+                        .get(name_cstr.as_bytes())
+                        .map_err(|e| anyhow!("Failed to load function '{}': {}", name, e))?;
                     Ok(FunctionPtr::NoArgs(*sym))
                 }
                 1 => {
-                    let sym: Symbol<unsafe extern "C" fn(u64) -> u64> =
-                        library.get(name_cstr.as_bytes()).map_err(|e| {
-                            anyhow!("Failed to load function '{}': {}", name, e)
-                        })?;
+                    let sym: Symbol<unsafe extern "C" fn(u64) -> u64> = library
+                        .get(name_cstr.as_bytes())
+                        .map_err(|e| anyhow!("Failed to load function '{}': {}", name, e))?;
                     Ok(FunctionPtr::OneArg(*sym))
                 }
                 2 => {
-                    let sym: Symbol<unsafe extern "C" fn(u64, u64) -> u64> =
-                        library.get(name_cstr.as_bytes()).map_err(|e| {
-                            anyhow!("Failed to load function '{}': {}", name, e)
-                        })?;
+                    let sym: Symbol<unsafe extern "C" fn(u64, u64) -> u64> = library
+                        .get(name_cstr.as_bytes())
+                        .map_err(|e| anyhow!("Failed to load function '{}': {}", name, e))?;
                     Ok(FunctionPtr::TwoArgs(*sym))
                 }
                 3 => {
-                    let sym: Symbol<unsafe extern "C" fn(u64, u64, u64) -> u64> =
-                        library.get(name_cstr.as_bytes()).map_err(|e| {
-                            anyhow!("Failed to load function '{}': {}", name, e)
-                        })?;
+                    let sym: Symbol<unsafe extern "C" fn(u64, u64, u64) -> u64> = library
+                        .get(name_cstr.as_bytes())
+                        .map_err(|e| anyhow!("Failed to load function '{}': {}", name, e))?;
                     Ok(FunctionPtr::ThreeArgs(*sym))
                 }
                 _ => {
                     // For functions with more than 3 args, use varargs
-                    let sym: Symbol<unsafe extern "C" fn(*const u64, usize) -> u64> =
-                        library.get(name_cstr.as_bytes()).map_err(|e| {
-                            anyhow!("Failed to load function '{}': {}", name, e)
-                        })?;
+                    let sym: Symbol<unsafe extern "C" fn(*const u64, usize) -> u64> = library
+                        .get(name_cstr.as_bytes())
+                        .map_err(|e| anyhow!("Failed to load function '{}': {}", name, e))?;
                     Ok(FunctionPtr::VarArgs(*sym))
                 }
             }
@@ -311,7 +318,13 @@ impl JitEngine {
             inline_threshold: None,
         };
 
-        let artifact = build_shared_library(program, &lib_path, &options)
+        let mut type_checker = TypeChecker::new().with_registry(SymbolRegistry::global());
+        type_checker
+            .check_program(program)
+            .context("Type checking failed during optimized JIT compilation")?;
+        let expr_types = type_checker.into_expr_type_map();
+
+        let artifact = build_shared_library(program, &expr_types, &lib_path, &options)
             .context("Failed to recompile with optimizations")?;
 
         let lib_path = artifact.binary;

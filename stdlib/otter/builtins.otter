@@ -30,6 +30,12 @@ fn append(list: List, val: any) -> bool:
         return append<list,int>(list, val) != 0
     elif type_of(val) == "float":
         return append<list,float>(list, val) != 0
+    elif type_of(val) == "bool":
+        return append<list,bool>(list, val) != 0
+    elif type_of(val) == "list":
+        return append<list,list>(list, val) != 0
+    elif type_of(val) == "map":
+        return append<list,map>(list, val) != 0
     else:
         panic("append() not supported for this value type")
 
@@ -63,7 +69,35 @@ fn map_get(map: Map, key: string) -> string:
     return map.get(map, key)
 
 fn map_set(map: Map, key: string, value: string) -> bool:
-    return map.set(map, key, value) != 0
+    if type_of(value) == "string":
+        return map.set(map, key, value) != 0
+    elif type_of(value) == "int":
+        return set<map,int>(map, key, value) != 0
+    elif type_of(value) == "float":
+        return set<map,float>(map, key, value) != 0
+    elif type_of(value) == "bool":
+        return set<map,bool>(map, key, value) != 0
+    elif type_of(value) == "list":
+        return set<map,list>(map, key, value) != 0
+    elif type_of(value) == "map":
+        return set<map,map>(map, key, value) != 0
+    else:
+        panic("map_set() not supported for this value type")
+
+fn map_get_int(map: Map, key: string) -> int:
+    return map.get_int(map, key)
+
+fn map_get_float(map: Map, key: string) -> float:
+    return map.get_float(map, key)
+
+fn map_get_bool(map: Map, key: string) -> bool:
+    return map.get_bool(map, key)
+
+fn map_get_list(map: Map, key: string) -> List:
+    return map.get_list(map, key)
+
+fn map_get_map(map: Map, key: string) -> Map:
+    return map.get_map(map, key)
 
 # Error handling - panic immediately terminates execution
 fn panic(msg: string):
@@ -133,4 +167,3 @@ fn stringify(x: any) -> string:
         return stringify<map>(x)
     else:
         return "unknown"
-

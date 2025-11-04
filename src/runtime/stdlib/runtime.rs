@@ -9,9 +9,9 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use sysinfo::System;
 
+use crate::runtime::memory::config::GcStrategy;
 use crate::runtime::memory::gc::get_gc;
 use crate::runtime::memory::profiler::get_profiler;
-use crate::runtime::memory::config::GcStrategy;
 use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType, SymbolRegistry};
 use crate::version::VERSION;
 
@@ -117,7 +117,7 @@ pub extern "C" fn otter_runtime_memory_profiler_stop() {
 pub extern "C" fn otter_runtime_memory_profiler_stats() -> *mut c_char {
     let profiler = get_profiler();
     let stats = profiler.get_stats();
-    
+
     // Convert to JSON using serde_json if available, otherwise manual formatting
     let json = serde_json::to_string(&stats).unwrap_or_else(|_| {
         format!(
@@ -131,7 +131,7 @@ pub extern "C" fn otter_runtime_memory_profiler_stats() -> *mut c_char {
             stats.duration_seconds
         )
     });
-    
+
     CString::new(json)
         .ok()
         .map(CString::into_raw)
@@ -143,11 +143,10 @@ pub extern "C" fn otter_runtime_memory_profiler_stats() -> *mut c_char {
 pub extern "C" fn otter_runtime_memory_profiler_leaks() -> *mut c_char {
     let profiler = get_profiler();
     let leaks = profiler.detect_leaks();
-    
-    let json = serde_json::to_string(&leaks).unwrap_or_else(|_| {
-        format!(r#"{{"leak_count":{}}}"#, leaks.len())
-    });
-    
+
+    let json = serde_json::to_string(&leaks)
+        .unwrap_or_else(|_| format!(r#"{{"leak_count":{}}}"#, leaks.len()));
+
     CString::new(json)
         .ok()
         .map(CString::into_raw)
@@ -161,19 +160,17 @@ pub extern "C" fn otter_runtime_set_gc_strategy(strategy: *const c_char) -> i32 
     if strategy.is_null() {
         return 0;
     }
-    
+
     unsafe {
         match CStr::from_ptr(strategy).to_str() {
-            Ok(s) => {
-                match s.parse::<GcStrategy>() {
-                    Ok(gc_strategy) => {
-                        let gc = get_gc();
-                        gc.set_strategy(gc_strategy);
-                        1
-                    }
-                    Err(_) => 0,
+            Ok(s) => match s.parse::<GcStrategy>() {
+                Ok(gc_strategy) => {
+                    let gc = get_gc();
+                    gc.set_strategy(gc_strategy);
+                    1
                 }
-            }
+                Err(_) => 0,
+            },
             Err(_) => 0,
         }
     }
@@ -223,20 +220,24 @@ pub extern "C" fn otter_runtime_stats() -> *mut c_char {
 pub extern "C" fn otter_runtime_tasks() -> *mut c_char {
     if let Some(metrics) = task_metrics_clone() {
         let snapshot = metrics.snapshot();
-        
+
         // Build worker info array
-        let worker_json: Vec<String> = snapshot.worker_infos.iter().map(|w| {
-            let state_str = match w.state {
-                WorkerState::Idle => "idle",
-                WorkerState::Busy => "busy",
-                WorkerState::Parked => "parked",
-            };
-            format!(
-                "{{\"id\":{},\"state\":\"{}\",\"queue_depth\":{},\"tasks_processed\":{}}}",
-                w.id, state_str, w.queue_depth, w.tasks_processed
-            )
-        }).collect();
-        
+        let worker_json: Vec<String> = snapshot
+            .worker_infos
+            .iter()
+            .map(|w| {
+                let state_str = match w.state {
+                    WorkerState::Idle => "idle",
+                    WorkerState::Busy => "busy",
+                    WorkerState::Parked => "parked",
+                };
+                format!(
+                    "{{\"id\":{},\"state\":\"{}\",\"queue_depth\":{},\"tasks_processed\":{}}}",
+                    w.id, state_str, w.queue_depth, w.tasks_processed
+                )
+            })
+            .collect();
+
         let json = format!(
             "{{\"tasks\":{{\"spawned\":{},\"completed\":{},\"waiting\":{}}},\"channels\":{{\"registered\":{},\"waiting\":{},\"backlog\":{}}},\"workers\":{{\"total\":{},\"active\":{}}},\"worker_details\":[{}]}}",
             snapshot.tasks_spawned,
@@ -249,7 +250,7 @@ pub extern "C" fn otter_runtime_tasks() -> *mut c_char {
             snapshot.active_workers,
             worker_json.join(",")
         );
-        
+
         CString::new(json)
             .ok()
             .map(CString::into_raw)
@@ -430,6 +431,37 @@ fn register_std_runtime_symbols(registry: &SymbolRegistry) {
         name: "runtime.tasks".into(),
         symbol: "otter_runtime_tasks".into(),
         signature: FfiSignature::new(vec![], FfiType::Str),
+    });
+
+    // Error handling runtime functions
+    registry.register(FfiFunction {
+        name: "runtime.error_push_context".into(),
+        symbol: "otter_error_push_context".into(),
+        signature: FfiSignature::new(vec![], FfiType::Bool),
+    });
+
+    registry.register(FfiFunction {
+        name: "runtime.error_pop_context".into(),
+        symbol: "otter_error_pop_context".into(),
+        signature: FfiSignature::new(vec![], FfiType::Bool),
+    });
+
+    registry.register(FfiFunction {
+        name: "runtime.error_has_error".into(),
+        symbol: "otter_error_has_error".into(),
+        signature: FfiSignature::new(vec![], FfiType::Bool),
+    });
+
+    registry.register(FfiFunction {
+        name: "runtime.error_clear".into(),
+        symbol: "otter_error_clear".into(),
+        signature: FfiSignature::new(vec![], FfiType::Unit),
+    });
+
+    registry.register(FfiFunction {
+        name: "runtime.error_rethrow".into(),
+        symbol: "otter_error_rethrow".into(),
+        signature: FfiSignature::new(vec![], FfiType::Unit),
     });
 }
 

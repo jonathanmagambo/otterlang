@@ -71,23 +71,22 @@ impl Function {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Simple(String),
-    Generic {
-        base: String,
-        args: Vec<Type>,
-    },
+    Generic { base: String, args: Vec<Type> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub name: String,
     pub ty: Option<Type>,
+    pub default: Option<Expr>,
 }
 
 impl Param {
-    pub fn new(name: impl Into<String>, ty: Option<Type>) -> Self {
+    pub fn new(name: impl Into<String>, ty: Option<Type>, default: Option<Expr>) -> Self {
         Self {
             name: name.into(),
             ty,
+            default,
         }
     }
 }
@@ -134,6 +133,7 @@ pub enum Statement {
     },
     Break,
     Continue,
+    Pass,
     Return(Option<Expr>),
 
     // Function definitions
@@ -143,6 +143,7 @@ pub enum Statement {
     Struct {
         name: String,
         fields: Vec<(String, Type)>,
+        methods: Vec<Function>, // Methods (functions with self parameter)
         public: bool,
         generics: Vec<String>, // Generic type parameters
     },
@@ -164,6 +165,15 @@ pub enum Statement {
 
     // Blocks (for grouping)
     Block(Block),
+
+    // Exception handling
+    Try {
+        body: Block,
+        handlers: Vec<ExceptHandler>,
+        else_block: Option<Block>,
+        finally_block: Option<Block>,
+    },
+    Raise(Option<Expr>),
 }
 
 impl Statement {
@@ -174,11 +184,13 @@ impl Statement {
             | Statement::Assignment { .. }
             | Statement::Break
             | Statement::Continue
+            | Statement::Pass
             | Statement::Return(_)
             | Statement::Expr(_)
-            | Statement::Use { .. }
+            |             Statement::Use { .. }
             | Statement::Struct { .. }
-            | Statement::TypeAlias { .. } => 1,
+            | Statement::TypeAlias { .. }
+            | Statement::Raise(_) => 1,
 
             Statement::If {
                 then_block,
@@ -201,6 +213,24 @@ impl Statement {
             }
             Statement::Function(func) => 1 + func.body.recursive_count(),
             Statement::Block(block) => block.recursive_count(),
+            Statement::Try {
+                body,
+                handlers,
+                else_block,
+                finally_block,
+            } => {
+                let mut count = 1 + body.recursive_count();
+                for handler in handlers {
+                    count += handler.body.recursive_count();
+                }
+                if let Some(block) = else_block {
+                    count += block.recursive_count();
+                }
+                if let Some(block) = finally_block {
+                    count += block.recursive_count();
+                }
+                count
+            }
         }
     }
 
@@ -208,7 +238,7 @@ impl Statement {
     pub fn is_pure(&self) -> bool {
         matches!(
             self,
-            Statement::Let { .. } | Statement::Break | Statement::Continue
+            Statement::Let { .. } | Statement::Break | Statement::Continue | Statement::Pass
         )
     }
 }
@@ -278,6 +308,19 @@ pub enum Expr {
     // Collection literals
     Array(Vec<Expr>),
     Dict(Vec<(Expr, Expr)>), // Key-value pairs
+    ListComprehension {
+        element: Box<Expr>,
+        var: String,
+        iterable: Box<Expr>,
+        condition: Option<Box<Expr>>,
+    },
+    DictComprehension {
+        key: Box<Expr>,
+        value: Box<Expr>,
+        var: String,
+        iterable: Box<Expr>,
+        condition: Option<Box<Expr>>,
+    },
 
     // String interpolation
     FString {
@@ -294,6 +337,12 @@ pub enum Expr {
     // Async operations
     Await(Box<Expr>),
     Spawn(Box<Expr>),
+
+    // Struct instantiation
+    Struct {
+        name: String,
+        fields: Vec<(String, Expr)>, // field name -> value
+    },
 }
 
 /// Match arm for pattern matching
@@ -302,6 +351,24 @@ pub struct MatchArm {
     pub pattern: Pattern,
     pub guard: Option<Expr>,
     pub body: Expr,
+}
+
+/// Exception handler for try/except blocks
+#[derive(Debug, Clone)]
+pub struct ExceptHandler {
+    pub exception: Option<Type>,
+    pub alias: Option<String>,
+    pub body: Block,
+}
+
+impl ExceptHandler {
+    pub fn new(exception: Option<Type>, alias: Option<String>, body: Block) -> Self {
+        Self {
+            exception,
+            alias,
+            body,
+        }
+    }
 }
 
 /// Pattern for match expressions
@@ -347,6 +414,8 @@ pub enum BinaryOp {
     Gt,
     LtEq,
     GtEq,
+    Is,
+    IsNot,
 
     // Logical
     And,
@@ -376,7 +445,8 @@ impl NumberLiteral {
 
 impl PartialEq for NumberLiteral {
     fn eq(&self, other: &Self) -> bool {
-        self.is_float_literal == other.is_float_literal && self.value.to_bits() == other.value.to_bits()
+        self.is_float_literal == other.is_float_literal
+            && self.value.to_bits() == other.value.to_bits()
     }
 }
 
@@ -394,6 +464,7 @@ pub enum Literal {
     String(String),
     Number(NumberLiteral),
     Bool(bool),
+    None,
     Unit, // Unit literal ()
 }
 
@@ -403,6 +474,7 @@ impl PartialEq for Literal {
             (Literal::String(a), Literal::String(b)) => a == b,
             (Literal::Bool(a), Literal::Bool(b)) => a == b,
             (Literal::Number(a), Literal::Number(b)) => a == b,
+            (Literal::None, Literal::None) => true,
             (Literal::Unit, Literal::Unit) => true,
             _ => false,
         }
@@ -426,8 +498,11 @@ impl Hash for Literal {
                 2u8.hash(state);
                 b.hash(state);
             }
-            Literal::Unit => {
+            Literal::None => {
                 3u8.hash(state);
+            }
+            Literal::Unit => {
+                4u8.hash(state);
             }
         }
     }

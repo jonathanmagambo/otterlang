@@ -9,7 +9,9 @@ use colored::Colorize;
 use tracing::{debug, info};
 
 use crate::cache::{CacheBuildOptions, CacheEntry, CacheManager, CacheMetadata, CompilationInputs};
-use crate::codegen::{self, build_executable, BuildArtifact, CodegenOptLevel, CodegenOptions, TargetTriple};
+use crate::codegen::{
+    self, build_executable, BuildArtifact, CodegenOptLevel, CodegenOptions, TargetTriple,
+};
 use crate::lexer::{tokenize, LexerError};
 use crate::module::ModuleProcessor;
 use crate::parser::{parse, ParserError};
@@ -104,13 +106,15 @@ pub fn run() -> Result<()> {
     logger::init_logging();
     ffi::bootstrap_stdlib();
     let cli = OtterCli::parse();
-    
+
     match &cli.command {
         Command::Run { path } => handle_run(&cli, path),
         Command::Build { path, output } => handle_build(&cli, path, output.clone()),
         Command::Repl => handle_repl(),
         Command::Fmt { paths } => handle_fmt(paths),
-        Command::Profile { subcommand } => crate::tools::profiler::run_profiler_subcommand(subcommand),
+        Command::Profile { subcommand } => {
+            crate::tools::profiler::run_profiler_subcommand(subcommand)
+        }
     }
 }
 
@@ -133,7 +137,12 @@ fn handle_run(cli: &OtterCli, path: &Path) -> Result<()> {
             execute_binary(&entry.binary_path, &settings)?;
         }
         CompilationResult::Compiled { artifact, metadata } => {
-            println!("{} {} {}", "🔨".yellow(), "building".bold(), artifact.binary.display());
+            println!(
+                "{} {} {}",
+                "🔨".yellow(),
+                "building".bold(),
+                artifact.binary.display()
+            );
             execute_binary(&artifact.binary, &settings)?;
             if settings.dump_ir {
                 if let Some(ir) = &artifact.ir {
@@ -178,7 +187,11 @@ fn handle_build(cli: &OtterCli, path: &Path, output: Option<PathBuf>) -> Result<
         )
     })?;
 
-    println!("{} {}", "✨".green(), format!("built {}", output_path.display()).green().bold());
+    println!(
+        "{} {}",
+        "✨".green(),
+        format!("built {}", output_path.display()).green().bold()
+    );
 
     match &stage.result {
         CompilationResult::Compiled { artifact, metadata } => {
@@ -219,10 +232,10 @@ fn compile_pipeline(
 
     // Try to find stdlib directory
     let stdlib_dir = find_stdlib_dir().ok();
-    
+
     // Initial inputs without module dependencies (will be updated after parsing)
     let mut inputs = CompilationInputs::new(path.to_path_buf(), Vec::new());
-    
+
     // Generate initial cache key for quick lookup check
     let initial_cache_key = profiler.record_phase("Fingerprint", || {
         cache_manager.fingerprint(&inputs, &cache_options, VERSION)
@@ -282,11 +295,12 @@ fn compile_pipeline(
     })?;
 
     // Type check the program
-    let mut type_checker = TypeChecker::new()
-        .with_registry(crate::runtime::symbol_registry::SymbolRegistry::global());
-    if let Err(err) = profiler.record_phase("Type Checking", || {
-        type_checker.check_program(&program)
-    }) {
+    let mut type_checker =
+        TypeChecker::new().with_registry(crate::runtime::symbol_registry::SymbolRegistry::global());
+    let type_check_result =
+        profiler.record_phase("Type Checking", || type_checker.check_program(&program));
+
+    if let Err(err) = type_check_result {
         // Emit type errors
         println!("{} {}", "🔍".yellow(), "== Type Errors ==".bold().red());
         for error in type_checker.errors() {
@@ -294,6 +308,8 @@ fn compile_pipeline(
         }
         return Err(err).with_context(|| "type checking failed");
     }
+
+    let expr_types = type_checker.into_expr_type_map();
 
     // Update inputs with module dependencies for accurate cache fingerprinting
     inputs.imports = module_deps.clone();
@@ -303,9 +319,9 @@ fn compile_pipeline(
 
     // Check cache again with module dependencies included
     if settings.allow_cache() {
-        if let Some(entry) =
-            profiler.record_phase("Cache lookup (with modules)", || cache_manager.lookup(&cache_key))?
-        {
+        if let Some(entry) = profiler.record_phase("Cache lookup (with modules)", || {
+            cache_manager.lookup(&cache_key)
+        })? {
             debug!(cache_hit = %entry.binary_path.display());
             profiler.push_phase("Compile skipped", Duration::from_millis(0));
             return Ok(CompilationStage {
@@ -319,7 +335,7 @@ fn compile_pipeline(
     let binary_path = cache_manager.binary_path(&cache_key);
 
     let artifact = profiler.record_phase("LLVM Codegen", || {
-        build_executable(&program, &binary_path, &codegen_options)
+        build_executable(&program, &expr_types, &binary_path, &codegen_options)
     })?;
 
     let build_duration_ms = profiler
@@ -420,11 +436,13 @@ impl CompilationSettings {
 
     fn codegen_options(&self) -> CodegenOptions {
         let target = self.target.as_ref().and_then(|t| {
-            TargetTriple::parse(t).map_err(|e| {
-                eprintln!("Warning: Invalid target triple '{}': {}", t, e);
-            }).ok()
+            TargetTriple::parse(t)
+                .map_err(|e| {
+                    eprintln!("Warning: Invalid target triple '{}': {}", t, e);
+                })
+                .ok()
         });
-        
+
         CodegenOptions {
             emit_ir: self.dump_ir,
             opt_level: if self.release {
@@ -477,7 +495,11 @@ fn find_stdlib_dir() -> Result<PathBuf> {
     // Try relative to executable (for development)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
-            let stdlib = exe_dir.parent().unwrap_or(exe_dir).join("stdlib").join("otter");
+            let stdlib = exe_dir
+                .parent()
+                .unwrap_or(exe_dir)
+                .join("stdlib")
+                .join("otter");
             if stdlib.exists() {
                 return Ok(stdlib);
             }
@@ -497,7 +519,7 @@ fn execute_binary(path: &Path, settings: &CompilationSettings) -> Result<()> {
     if settings.debug {
         println!("{} Running program: {}", "🚀".cyan(), path.display());
     }
-    
+
     let mut command = ProcessCommand::new(path);
 
     if settings.tasks {
@@ -548,7 +570,11 @@ fn print_timings(stage: &CompilationStage) {
         );
         total += *duration;
     }
-    println!("  {} Total: {:.2}ms", "🎯".green(), total.as_secs_f64() * 1000.0);
+    println!(
+        "  {} Total: {:.2}ms",
+        "🎯".green(),
+        total.as_secs_f64() * 1000.0
+    );
 }
 
 fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
@@ -558,7 +584,7 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
     use glob::glob;
 
     println!("{} Formatting OtterLang files...", "✨".magenta());
-    
+
     let formatter = Formatter::new();
     let mut formatted_count = 0;
 
@@ -600,7 +626,11 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
         if formatted != source {
             fs::write(&file_path, formatted)
                 .with_context(|| format!("failed to write {}", file_path.display()))?;
-            println!("{} {}", "✨".green(), format!("Formatted {}", file_path.display()).green());
+            println!(
+                "{} {}",
+                "✨".green(),
+                format!("Formatted {}", file_path.display()).green()
+            );
             formatted_count += 1;
         }
     }
@@ -608,7 +638,11 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
     if formatted_count == 0 {
         println!("{} All files are already formatted! 🎉", "✨".green());
     } else {
-        println!("{} Formatted {} file(s)! 🎉", "✨".green().bold(), formatted_count);
+        println!(
+            "{} Formatted {} file(s)! 🎉",
+            "✨".green().bold(),
+            formatted_count
+        );
     }
 
     Ok(())
@@ -617,7 +651,10 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
 fn handle_repl() -> Result<()> {
     use crate::repl::ReplEngine;
     println!("{} Starting OtterLang REPL...", "🦦".cyan());
-    println!("{} Type 'exit' or 'quit' to exit, 'help' for help", "💡".yellow());
+    println!(
+        "{} Type 'exit' or 'quit' to exit, 'help' for help",
+        "💡".yellow()
+    );
     let mut repl = ReplEngine::new();
     repl.run()
 }

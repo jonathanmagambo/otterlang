@@ -6,8 +6,8 @@
 pub mod cargo_bridge;
 pub mod dynamic_loader;
 pub mod metadata;
-pub mod rustdoc_extractor;
 pub mod rust_stubgen;
+pub mod rustdoc_extractor;
 pub mod symbol_registry;
 
 pub use cargo_bridge::{BridgeArtifacts, CargoBridge};
@@ -16,6 +16,6 @@ pub use metadata::{
     load_bridge_functions, BridgeMetadata, CrateSpec, DependencyConfig, FnSig, PublicItem,
     RustPath, RustTypeRef,
 };
-pub use rustdoc_extractor::{extract_crate_spec, extract_crate_spec_from_json};
 pub use rust_stubgen::{CallTemplate, FunctionSpec, RustStubGenerator, StubSource, TypeSpec};
+pub use rustdoc_extractor::{extract_crate_spec, extract_crate_spec_from_json};
 pub use symbol_registry::{BridgeFunction, BridgeSymbolRegistry};

@@ -1,6 +1,6 @@
+use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use anyhow::Result;
 
 use crate::ast::nodes::{Program, Statement};
 use crate::module::{Module, ModuleLoader, ModulePath, ModuleResolver};
@@ -32,7 +32,7 @@ impl ModuleProcessor {
         for statement in &program.statements {
             if let Statement::Use { module, .. } = statement {
                 let module_path = ModulePath::from_string(module, &self.source_dir)?;
-                
+
                 match module_path {
                     ModulePath::Rust(_) => {
                         // Rust FFI imports are handled separately
@@ -52,16 +52,17 @@ impl ModuleProcessor {
                         let resolved = self.loader.resolver().resolve(module)?;
                         if !self.loaded_modules.contains_key(&resolved) {
                             // Check for circular dependencies
-                            self.loader.resolver_mut().add_dependency(
-                                self.source_dir.clone(),
-                                resolved.clone(),
-                            );
-                            self.loader.resolver_mut().check_circular(&self.source_dir)?;
-                            
+                            self.loader
+                                .resolver_mut()
+                                .add_dependency(self.source_dir.clone(), resolved.clone());
+                            self.loader
+                                .resolver_mut()
+                                .check_circular(&self.source_dir)?;
+
                             let module = self.loader.load_file(&resolved)?;
                             dependencies.push(resolved.clone());
                             self.loaded_modules.insert(resolved.clone(), module);
-                            
+
                             // Recursively process imports in the loaded module
                             let module_deps = self.process_module_imports(&resolved)?;
                             dependencies.extend(module_deps);
@@ -79,18 +80,24 @@ impl ModuleProcessor {
     fn process_module_imports(&mut self, module_path: &PathBuf) -> Result<Vec<PathBuf>> {
         // Get module statements without borrowing self mutably
         let module_statements = {
-            let module = self.loaded_modules.get(module_path)
+            let module = self
+                .loaded_modules
+                .get(module_path)
                 .ok_or_else(|| anyhow::anyhow!("module not loaded: {}", module_path.display()))?;
             module.program.statements.clone()
         };
-        
+
         let mut dependencies = Vec::new();
-        
+
         for statement in &module_statements {
-            if let Statement::Use { module: module_name, .. } = statement {
+            if let Statement::Use {
+                module: module_name,
+                ..
+            } = statement
+            {
                 let module_dir = module_path.parent().unwrap_or(Path::new("."));
                 let module_path_enum = ModulePath::from_string(module_name, module_dir)?;
-                
+
                 match module_path_enum {
                     ModulePath::Rust(_) => {
                         // Skip Rust imports
@@ -106,21 +113,21 @@ impl ModuleProcessor {
                     ModulePath::Relative(_) | ModulePath::Absolute(_) => {
                         // Resolve relative to the current module's directory
                         let module_dir = module_path.parent().unwrap_or(Path::new("."));
-                        let resolver = ModuleResolver::new(module_dir.to_path_buf(), self.stdlib_dir.clone());
+                        let resolver =
+                            ModuleResolver::new(module_dir.to_path_buf(), self.stdlib_dir.clone());
                         let resolved = resolver.resolve(module_name)?;
-                        
+
                         if !self.loaded_modules.contains_key(&resolved) {
                             // Check for circular dependencies
-                            self.loader.resolver_mut().add_dependency(
-                                module_path.clone(),
-                                resolved.clone(),
-                            );
+                            self.loader
+                                .resolver_mut()
+                                .add_dependency(module_path.clone(), resolved.clone());
                             self.loader.resolver_mut().check_circular(module_path)?;
-                            
+
                             let module = self.loader.load_file(&resolved)?;
                             dependencies.push(resolved.clone());
                             self.loaded_modules.insert(resolved.clone(), module);
-                            
+
                             // Recursively process
                             let module_deps = self.process_module_imports(&resolved)?;
                             dependencies.extend(module_deps);
@@ -129,7 +136,7 @@ impl ModuleProcessor {
                 }
             }
         }
-        
+
         Ok(dependencies)
     }
 
@@ -167,21 +174,24 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source_dir = temp_dir.path().join("src");
         fs::create_dir_all(&source_dir).unwrap();
-        
+
         let main_file = source_dir.join("main.otter");
         let math_file = source_dir.join("math.otter");
-        
+
         fs::write(&main_file, "use ./math\nfn main:\n    print(\"test\")\n").unwrap();
-        fs::write(&math_file, "pub fn add(a: f64, b: f64) -> f64:\n    return a + b\n").unwrap();
-        
+        fs::write(
+            &math_file,
+            "pub fn add(a: f64, b: f64) -> f64:\n    return a + b\n",
+        )
+        .unwrap();
+
         let tokens = crate::lexer::tokenize(&fs::read_to_string(&main_file).unwrap()).unwrap();
         let program = crate::parser::parse(&tokens).unwrap();
-        
+
         let mut processor = ModuleProcessor::new(source_dir.clone(), None);
         let deps = processor.process_imports(&program).unwrap();
-        
+
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&math_file.canonicalize().unwrap()));
     }
 }
-

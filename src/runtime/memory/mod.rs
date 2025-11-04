@@ -2,15 +2,14 @@
 //!
 //! Provides reference counting, garbage collection, and memory profiling
 
-pub mod rc;
-pub mod object;
-pub mod gc;
-pub mod profiler;
 pub mod config;
+pub mod gc;
+pub mod object;
+pub mod profiler;
+pub mod rc;
 
-pub use rc::{RcOtter, WeakOtter};
-pub use object::OtterObject;
-pub use gc::{GcStrategyTrait, MarkSweepGC, RcGC};
-pub use profiler::{MemoryProfiler, AllocationInfo};
 pub use config::{GcConfig, GcStrategy};
-
+pub use gc::{GcStrategyTrait, MarkSweepGC, RcGC};
+pub use object::OtterObject;
+pub use profiler::{AllocationInfo, MemoryProfiler};
+pub use rc::{RcOtter, WeakOtter};

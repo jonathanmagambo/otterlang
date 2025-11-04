@@ -1,0 +1,50 @@
+use otter:fmt
+
+fn simulate_operation(name: str, should_fail: bool) -> str:
+    fmt.println("Starting operation: " + name)
+    if should_fail:
+        raise "Operation failed"
+    let result = "Result of " + name
+    fmt.println("Successfully completed: " + result)
+    return result
+
+fn demonstrate_finally():
+    fmt.println("Demonstrating Finally Blocks")
+    fmt.println("===========================")
+    try:
+        let result = simulate_operation("task1", false)
+        fmt.println("Got result: " + result)
+    except Error as e:
+        fmt.println("Operation failed: " + e.message)
+    finally:
+        fmt.println("Cleaning up after task1")
+    try:
+        let result = simulate_operation("task2", true)
+        fmt.println("Got result: " + result)
+    except Error as e:
+        fmt.println("Operation failed: " + e.message)
+    finally:
+        fmt.println("Cleaning up after task2")
+
+fn resource_management_demo():
+    fmt.println("Resource Management with Finally")
+    fmt.println("===============================")
+    try:
+        fmt.println("Acquiring resource: Database")
+        fmt.println("Acquiring resource: Network")
+        fmt.println("Acquiring resource: File")
+        raise "Processing failed"
+        fmt.println("All operations completed successfully")
+    except Error as e:
+        fmt.println("Operation failed: " + e.message)
+    finally:
+        fmt.println("Releasing resource: Database")
+        fmt.println("Releasing resource: Network")
+        fmt.println("Releasing resource: File")
+
+fn main():
+    fmt.println("Exception Handling - Resource Management")
+    fmt.println("========================================")
+    demonstrate_finally()
+    fmt.println()
+    resource_management_demo()

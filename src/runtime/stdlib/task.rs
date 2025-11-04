@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::Arc;
-use std::time::Duration;
 #[cfg(feature = "task-runtime")]
 use std::task::Waker;
+use std::time::Duration;
 
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 #[cfg(feature = "task-runtime")]
 use parking_lot::Condvar;
+use parking_lot::Mutex;
 
 #[cfg(feature = "task-runtime")]
 use crate::runtime::stdlib::runtime::task_metrics_clone;
@@ -60,20 +60,20 @@ pub extern "C" fn otter_task_sleep(ms: i64) {
     if ms <= 0 {
         return;
     }
-    
+
     #[cfg(feature = "task-runtime")]
     {
         // Use timer wheel for non-blocking sleep
         let timer_wheel = runtime().scheduler().timer_wheel();
         let condvar_pair = Arc::new((Mutex::new(false), Condvar::new()));
-        
+
         // Create a waker that will notify the condvar
         let pair = Arc::clone(&condvar_pair);
         let waker = create_condvar_waker(pair.clone());
-        
+
         // Schedule wakeup
         timer_wheel.schedule_wakeup(Duration::from_millis(ms as u64), waker);
-        
+
         // Block until woken
         let mut ready = condvar_pair.0.lock();
         while !*ready {
@@ -81,7 +81,7 @@ pub extern "C" fn otter_task_sleep(ms: i64) {
         }
         return;
     }
-    
+
     #[cfg(not(feature = "task-runtime"))]
     {
         std::thread::sleep(Duration::from_millis(ms as u64));
@@ -91,17 +91,17 @@ pub extern "C" fn otter_task_sleep(ms: i64) {
 #[cfg(feature = "task-runtime")]
 fn create_condvar_waker(pair: Arc<(Mutex<bool>, Condvar)>) -> Waker {
     use std::task::{RawWaker, RawWakerVTable};
-    
+
     unsafe fn clone(data: *const ()) -> RawWaker {
         RawWaker::new(data, &VTABLE)
     }
-    
+
     unsafe fn wake(data: *const ()) {
         let pair = Arc::from_raw(data as *const Arc<(Mutex<bool>, Condvar)>);
         *pair.0.lock() = true;
         pair.1.notify_all();
     }
-    
+
     unsafe fn wake_by_ref(data: *const ()) {
         // For wake_by_ref, we need to use the Arc without consuming it
         // So we'll clone it first
@@ -111,13 +111,13 @@ fn create_condvar_waker(pair: Arc<(Mutex<bool>, Condvar)>) -> Waker {
         *pair_clone.0.lock() = true;
         pair_clone.1.notify_all();
     }
-    
+
     unsafe fn drop(data: *const ()) {
         let _ = Arc::from_raw(data as *const Arc<(Mutex<bool>, Condvar)>);
     }
-    
+
     static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
-    
+
     let pair_ptr = Arc::into_raw(pair);
     unsafe { Waker::from_raw(RawWaker::new(pair_ptr as *const (), &VTABLE)) }
 }
@@ -262,7 +262,7 @@ pub extern "C" fn otter_task_close_channel(handle: u64) {
     if let Some(wrapper) = FLOAT_CHANNELS.lock().get(&handle) {
         wrapper.channel.close();
     }
-    
+
     // Remove from registry
     STRING_CHANNELS.lock().remove(&handle);
     INT_CHANNELS.lock().remove(&handle);

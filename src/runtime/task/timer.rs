@@ -173,26 +173,36 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
             wheel.process_expired();
         }
-        
+
         // Small delay to ensure waker flags are updated
         std::thread::sleep(Duration::from_millis(20));
 
         // First timer should have fired, second should not
-        assert!(flag1.load(Ordering::SeqCst), "First timer should have fired");
-        assert!(!flag2.load(Ordering::SeqCst), "Second timer should not have fired yet (only {}ms elapsed)", start.elapsed().as_millis());
+        assert!(
+            flag1.load(Ordering::SeqCst),
+            "First timer should have fired"
+        );
+        assert!(
+            !flag2.load(Ordering::SeqCst),
+            "Second timer should not have fired yet (only {}ms elapsed)",
+            start.elapsed().as_millis()
+        );
 
         // Wait for second timer to expire - wait until we've passed the deadline
         while start.elapsed() < Duration::from_millis(450) {
             std::thread::sleep(Duration::from_millis(10));
             wheel.process_expired();
         }
-        
+
         // Small delay to ensure waker flags are updated
         std::thread::sleep(Duration::from_millis(20));
 
         // Both should have fired
         assert!(flag1.load(Ordering::SeqCst));
-        assert!(flag2.load(Ordering::SeqCst), "Second timer should have fired");
+        assert!(
+            flag2.load(Ordering::SeqCst),
+            "Second timer should have fired"
+        );
     }
 
     #[test]
@@ -212,4 +222,3 @@ mod tests {
         assert!(timeout >= Duration::from_millis(50)); // Allow some tolerance
     }
 }
-

@@ -20,21 +20,93 @@ fn next_handle_id() -> HandleId {
     NEXT_HANDLE_ID.fetch_add(1, Ordering::SeqCst)
 }
 
-// Simple list storage (for future expansion)
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+enum Value {
+    Unit,
+    Bool(bool),
+    I64(i64),
+    F64(f64),
+    String(String),
+    List(HandleId),
+    Map(HandleId),
+}
+
 struct List {
-    items: Vec<String>, // For now, storing strings
+    items: Vec<Value>,
 }
 
 static LISTS: Lazy<RwLock<std::collections::HashMap<HandleId, List>>> =
     Lazy::new(|| RwLock::new(std::collections::HashMap::new()));
 
-// Simple map storage (for future expansion)
 struct Map {
-    items: std::collections::HashMap<String, String>, // For now, string->string
+    items: std::collections::HashMap<String, Value>,
 }
 
 static MAPS: Lazy<RwLock<std::collections::HashMap<HandleId, Map>>> =
     Lazy::new(|| RwLock::new(std::collections::HashMap::new()));
+
+fn value_to_string(value: &Value) -> String {
+    match value {
+        Value::Unit => "None".to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::I64(i) => i.to_string(),
+        Value::F64(f) => {
+            if f.fract() == 0.0 {
+                (*f as i64).to_string()
+            } else {
+                f.to_string()
+            }
+        }
+        Value::String(s) => s.clone(),
+        Value::List(handle) => stringify_list_handle(*handle),
+        Value::Map(handle) => stringify_map_handle(*handle),
+    }
+}
+
+fn list_value(handle: HandleId, index: i64) -> Option<Value> {
+    if index < 0 {
+        return None;
+    }
+    let lists = LISTS.read();
+    lists
+        .get(&handle)
+        .and_then(|list| list.items.get(index as usize).cloned())
+}
+
+fn map_value(handle: HandleId, key: &str) -> Option<Value> {
+    let maps = MAPS.read();
+    maps.get(&handle)
+        .and_then(|map| map.items.get(key).cloned())
+}
+
+fn stringify_list_handle(handle: HandleId) -> String {
+    let lists = LISTS.read();
+    if let Some(list) = lists.get(&handle) {
+        let items = list
+            .items
+            .iter()
+            .map(|value| value_to_string(value))
+            .collect::<Vec<_>>();
+        format!("[{}]", items.join(", "))
+    } else {
+        "[]".to_string()
+    }
+}
+
+fn stringify_map_handle(handle: HandleId) -> String {
+    let maps = MAPS.read();
+    if let Some(map) = maps.get(&handle) {
+        let items = map
+            .items
+            .iter()
+            .map(|(key, value)| format!("{}: {}", key, value_to_string(value)))
+            .collect::<Vec<_>>();
+        format!("{{{}}}", items.join(", "))
+    } else {
+        "{}".to_string()
+    }
+}
 
 // ============================================================================
 // Error Handling - Panic and Recovery
@@ -139,7 +211,7 @@ pub extern "C" fn otter_builtin_append_list_string(handle: u64, val: *const c_ch
 
     let mut lists = LISTS.write();
     if let Some(list) = lists.get_mut(&handle) {
-        list.items.push(val_str);
+        list.items.push(Value::String(val_str));
         1
     } else {
         0
@@ -148,10 +220,9 @@ pub extern "C" fn otter_builtin_append_list_string(handle: u64, val: *const c_ch
 
 #[no_mangle]
 pub extern "C" fn otter_builtin_append_list_int(handle: u64, val: i64) -> i32 {
-    let val_str = val.to_string();
     let mut lists = LISTS.write();
     if let Some(list) = lists.get_mut(&handle) {
-        list.items.push(val_str);
+        list.items.push(Value::I64(val));
         1
     } else {
         0
@@ -160,10 +231,42 @@ pub extern "C" fn otter_builtin_append_list_int(handle: u64, val: i64) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn otter_builtin_append_list_float(handle: u64, val: f64) -> i32 {
-    let val_str = val.to_string();
     let mut lists = LISTS.write();
     if let Some(list) = lists.get_mut(&handle) {
-        list.items.push(val_str);
+        list.items.push(Value::F64(val));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_append_list_bool(handle: u64, val: bool) -> i32 {
+    let mut lists = LISTS.write();
+    if let Some(list) = lists.get_mut(&handle) {
+        list.items.push(Value::Bool(val));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_append_list_list(handle: u64, value_handle: u64) -> i32 {
+    let mut lists = LISTS.write();
+    if let Some(list) = lists.get_mut(&handle) {
+        list.items.push(Value::List(value_handle));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_append_list_map(handle: u64, value_handle: u64) -> i32 {
+    let mut lists = LISTS.write();
+    if let Some(list) = lists.get_mut(&handle) {
+        list.items.push(Value::Map(value_handle));
         1
     } else {
         0
@@ -205,7 +308,7 @@ pub extern "C" fn otter_builtin_range_int(start: i64, end: i64) -> u64 {
 
     if start <= end {
         for i in start..end {
-            items.push(i.to_string());
+            items.push(Value::I64(i));
         }
     }
 
@@ -222,7 +325,7 @@ pub extern "C" fn otter_builtin_range_float(start: f64, end: f64) -> u64 {
     if start <= end {
         let mut current = start;
         while current < end {
-            items.push(current.to_string());
+            items.push(Value::F64(current));
             current += 1.0;
         }
     }
@@ -243,11 +346,11 @@ pub extern "C" fn otter_builtin_enumerate_list(handle: u64) -> u64 {
     let id = next_handle_id();
 
     if let Some(list) = lists.get(&handle) {
-        let enumerated: Vec<String> = list
+        let enumerated: Vec<Value> = list
             .items
             .iter()
             .enumerate()
-            .map(|(idx, val)| format!("{}:{}", idx, val))
+            .map(|(idx, val)| Value::String(format!("{}:{}", idx, value_to_string(val))))
             .collect();
 
         let new_list = List { items: enumerated };
@@ -287,19 +390,12 @@ pub extern "C" fn otter_builtin_map_new() -> u64 {
 
 #[no_mangle]
 pub extern "C" fn otter_builtin_list_get(handle: u64, index: i64) -> *mut c_char {
-    let lists = LISTS.read();
-    if let Some(list) = lists.get(&handle) {
-        if index >= 0 && (index as usize) < list.items.len() {
-            let val = &list.items[index as usize];
-            CString::new(val.clone())
-                .ok()
-                .map(CString::into_raw)
-                .unwrap_or(std::ptr::null_mut())
-        } else {
-            std::ptr::null_mut()
-        }
-    } else {
-        std::ptr::null_mut()
+    match list_value(handle, index) {
+        Some(value) => CString::new(value_to_string(&value))
+            .ok()
+            .map(CString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
     }
 }
 
@@ -311,18 +407,70 @@ pub extern "C" fn otter_builtin_map_get(handle: u64, key: *const c_char) -> *mut
 
     let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
 
-    let maps = MAPS.read();
-    if let Some(map) = maps.get(&handle) {
-        if let Some(val) = map.items.get(&key_str) {
-            CString::new(val.clone())
-                .ok()
-                .map(CString::into_raw)
-                .unwrap_or(std::ptr::null_mut())
-        } else {
-            std::ptr::null_mut()
+    match map_value(handle, &key_str) {
+        Some(value) => CString::new(value_to_string(&value))
+            .ok()
+            .map(CString::into_raw)
+            .unwrap_or(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_list_get_int(handle: u64, index: i64) -> i64 {
+    match list_value(handle, index) {
+        Some(Value::I64(i)) => i,
+        Some(Value::F64(f)) => f as i64,
+        Some(Value::Bool(b)) => {
+            if b {
+                1
+            } else {
+                0
+            }
         }
-    } else {
-        std::ptr::null_mut()
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_list_get_float(handle: u64, index: i64) -> f64 {
+    match list_value(handle, index) {
+        Some(Value::F64(f)) => f,
+        Some(Value::I64(i)) => i as f64,
+        Some(Value::Bool(b)) => {
+            if b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_list_get_bool(handle: u64, index: i64) -> bool {
+    match list_value(handle, index) {
+        Some(Value::Bool(b)) => b,
+        Some(Value::I64(i)) => i != 0,
+        Some(Value::F64(f)) => f != 0.0,
+        _ => false,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_list_get_list(handle: u64, index: i64) -> u64 {
+    match list_value(handle, index) {
+        Some(Value::List(inner)) => inner,
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_list_get_map(handle: u64, index: i64) -> u64 {
+    match list_value(handle, index) {
+        Some(Value::Map(inner)) => inner,
+        _ => 0,
     }
 }
 
@@ -342,7 +490,178 @@ pub extern "C" fn otter_builtin_map_set(
 
     let mut maps = MAPS.write();
     if let Some(map) = maps.get_mut(&handle) {
-        map.items.insert(key_str, value_str);
+        map.items.insert(key_str, Value::String(value_str));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_get_int(handle: u64, key: *const c_char) -> i64 {
+    if key.is_null() {
+        return 0;
+    }
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+    match map_value(handle, &key_str) {
+        Some(Value::I64(i)) => i,
+        Some(Value::F64(f)) => f as i64,
+        Some(Value::Bool(b)) => {
+            if b {
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_get_float(handle: u64, key: *const c_char) -> f64 {
+    if key.is_null() {
+        return 0.0;
+    }
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+    match map_value(handle, &key_str) {
+        Some(Value::F64(f)) => f,
+        Some(Value::I64(i)) => i as f64,
+        Some(Value::Bool(b)) => {
+            if b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_get_bool(handle: u64, key: *const c_char) -> bool {
+    if key.is_null() {
+        return false;
+    }
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+    match map_value(handle, &key_str) {
+        Some(Value::Bool(b)) => b,
+        Some(Value::I64(i)) => i != 0,
+        Some(Value::F64(f)) => f != 0.0,
+        _ => false,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_get_list(handle: u64, key: *const c_char) -> u64 {
+    if key.is_null() {
+        return 0;
+    }
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+    match map_value(handle, &key_str) {
+        Some(Value::List(inner)) => inner,
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_get_map(handle: u64, key: *const c_char) -> u64 {
+    if key.is_null() {
+        return 0;
+    }
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+    match map_value(handle, &key_str) {
+        Some(Value::Map(inner)) => inner,
+        _ => 0,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_set_int(handle: u64, key: *const c_char, value: i64) -> i32 {
+    if key.is_null() {
+        return 0;
+    }
+
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+
+    let mut maps = MAPS.write();
+    if let Some(map) = maps.get_mut(&handle) {
+        map.items.insert(key_str, Value::I64(value));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_set_float(handle: u64, key: *const c_char, value: f64) -> i32 {
+    if key.is_null() {
+        return 0;
+    }
+
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+
+    let mut maps = MAPS.write();
+    if let Some(map) = maps.get_mut(&handle) {
+        map.items.insert(key_str, Value::F64(value));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_set_bool(handle: u64, key: *const c_char, value: bool) -> i32 {
+    if key.is_null() {
+        return 0;
+    }
+
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+
+    let mut maps = MAPS.write();
+    if let Some(map) = maps.get_mut(&handle) {
+        map.items.insert(key_str, Value::Bool(value));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_set_list(
+    handle: u64,
+    key: *const c_char,
+    value_handle: u64,
+) -> i32 {
+    if key.is_null() {
+        return 0;
+    }
+
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+
+    let mut maps = MAPS.write();
+    if let Some(map) = maps.get_mut(&handle) {
+        map.items.insert(key_str, Value::List(value_handle));
+        1
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn otter_builtin_map_set_map(
+    handle: u64,
+    key: *const c_char,
+    value_handle: u64,
+) -> i32 {
+    if key.is_null() {
+        return 0;
+    }
+
+    let key_str = unsafe { CStr::from_ptr(key).to_str().unwrap_or("").to_string() };
+
+    let mut maps = MAPS.write();
+    if let Some(map) = maps.get_mut(&handle) {
+        map.items.insert(key_str, Value::Map(value_handle));
         1
     } else {
         0
@@ -684,7 +1003,11 @@ pub extern "C" fn otter_builtin_stringify_string(s: *const c_char) -> *mut c_cha
 pub extern "C" fn otter_builtin_stringify_list(handle: u64) -> *mut c_char {
     let lists = LISTS.read();
     if let Some(list) = lists.get(&handle) {
-        let items: Vec<String> = list.items.iter().map(|s| format!("\"{}\"", s)).collect();
+        let items: Vec<String> = list
+            .items
+            .iter()
+            .map(|value| value_to_string(value))
+            .collect();
         let json = format!("[{}]", items.join(", "));
         CString::new(json)
             .ok()
@@ -705,7 +1028,7 @@ pub extern "C" fn otter_builtin_stringify_map(handle: u64) -> *mut c_char {
         let items: Vec<String> = map
             .items
             .iter()
-            .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
+            .map(|(k, v)| format!("\"{}\": {}", k, value_to_string(v)))
             .collect();
         let json = format!("{{{}}}", items.join(", "));
         CString::new(json)
@@ -785,13 +1108,13 @@ fn register_builtin_symbols(registry: &SymbolRegistry) {
     registry.register(FfiFunction {
         name: "len<list>".into(),
         symbol: "otter_builtin_len_list".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::I64),
+        signature: FfiSignature::new(vec![FfiType::List], FfiType::I64),
     });
 
     registry.register(FfiFunction {
         name: "len<map>".into(),
         symbol: "otter_builtin_len_map".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::I64),
+        signature: FfiSignature::new(vec![FfiType::Map], FfiType::I64),
     });
 
     // cap() functions
@@ -804,87 +1127,234 @@ fn register_builtin_symbols(registry: &SymbolRegistry) {
     registry.register(FfiFunction {
         name: "cap<list>".into(),
         symbol: "otter_builtin_cap_list".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::I64),
+        signature: FfiSignature::new(vec![FfiType::List], FfiType::I64),
     });
 
     // append() functions
     registry.register(FfiFunction {
         name: "append<list,string>".into(),
         symbol: "otter_builtin_append_list_string".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::Str], FfiType::I32),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::Str], FfiType::I32),
     });
 
     registry.register(FfiFunction {
         name: "append<list,int>".into(),
         symbol: "otter_builtin_append_list_int".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::I64], FfiType::I32),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::I32),
     });
 
     registry.register(FfiFunction {
         name: "append<list,float>".into(),
         symbol: "otter_builtin_append_list_float".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::F64], FfiType::I32),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::F64], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "append<list,bool>".into(),
+        symbol: "otter_builtin_append_list_bool".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::Bool], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "append<list,list>".into(),
+        symbol: "otter_builtin_append_list_list".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::List], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "append<list,map>".into(),
+        symbol: "otter_builtin_append_list_map".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::Map], FfiType::I32),
     });
 
     // delete() function
     registry.register(FfiFunction {
         name: "delete<map>".into(),
         symbol: "otter_builtin_delete_map".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::Str], FfiType::I32),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::I32),
     });
 
     // range() functions
     registry.register(FfiFunction {
         name: "range<int>".into(),
         symbol: "otter_builtin_range_int".into(),
-        signature: FfiSignature::new(vec![FfiType::I64, FfiType::I64], FfiType::Opaque),
+        signature: FfiSignature::new(vec![FfiType::I64, FfiType::I64], FfiType::List),
     });
 
     registry.register(FfiFunction {
         name: "range<float>".into(),
         symbol: "otter_builtin_range_float".into(),
-        signature: FfiSignature::new(vec![FfiType::F64, FfiType::F64], FfiType::Opaque),
+        signature: FfiSignature::new(vec![FfiType::F64, FfiType::F64], FfiType::List),
     });
 
     // enumerate() function
     registry.register(FfiFunction {
         name: "enumerate<list>".into(),
         symbol: "otter_builtin_enumerate_list".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::Opaque),
+        signature: FfiSignature::new(vec![FfiType::List], FfiType::List),
     });
 
     // Helper functions
     registry.register(FfiFunction {
         name: "list.new".into(),
         symbol: "otter_builtin_list_new".into(),
-        signature: FfiSignature::new(vec![], FfiType::Opaque),
+        signature: FfiSignature::new(vec![], FfiType::List),
     });
 
     registry.register(FfiFunction {
         name: "map.new".into(),
         symbol: "otter_builtin_map_new".into(),
-        signature: FfiSignature::new(vec![], FfiType::Opaque),
+        signature: FfiSignature::new(vec![], FfiType::Map),
     });
 
     registry.register(FfiFunction {
         name: "list.get".into(),
         symbol: "otter_builtin_list_get".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::I64], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::Str),
+    });
+
+    registry.register(FfiFunction {
+        name: "list.get_int".into(),
+        symbol: "otter_builtin_list_get_int".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::I64),
+    });
+
+    registry.register(FfiFunction {
+        name: "list.get_float".into(),
+        symbol: "otter_builtin_list_get_float".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::F64),
+    });
+
+    registry.register(FfiFunction {
+        name: "list.get_bool".into(),
+        symbol: "otter_builtin_list_get_bool".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::Bool),
+    });
+
+    registry.register(FfiFunction {
+        name: "list.get_list".into(),
+        symbol: "otter_builtin_list_get_list".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::List),
+    });
+
+    registry.register(FfiFunction {
+        name: "list.get_map".into(),
+        symbol: "otter_builtin_list_get_map".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::I64], FfiType::Map),
     });
 
     registry.register(FfiFunction {
         name: "map.get".into(),
         symbol: "otter_builtin_map_get".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque, FfiType::Str], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::Str),
+    });
+
+    registry.register(FfiFunction {
+        name: "map.get_int".into(),
+        symbol: "otter_builtin_map_get_int".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::I64),
+    });
+
+    registry.register(FfiFunction {
+        name: "map.get_float".into(),
+        symbol: "otter_builtin_map_get_float".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::F64),
+    });
+
+    registry.register(FfiFunction {
+        name: "map.get_bool".into(),
+        symbol: "otter_builtin_map_get_bool".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::Bool),
+    });
+
+    registry.register(FfiFunction {
+        name: "map.get_list".into(),
+        symbol: "otter_builtin_map_get_list".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::List),
+    });
+
+    registry.register(FfiFunction {
+        name: "map.get_map".into(),
+        symbol: "otter_builtin_map_get_map".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str], FfiType::Map),
     });
 
     registry.register(FfiFunction {
         name: "map.set".into(),
         symbol: "otter_builtin_map_set".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::Str], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,int>".into(),
+        symbol: "otter_builtin_map_set_int".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::I64], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,float>".into(),
+        symbol: "otter_builtin_map_set_float".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::F64], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,bool>".into(),
+        symbol: "otter_builtin_map_set_bool".into(),
         signature: FfiSignature::new(
-            vec![FfiType::Opaque, FfiType::Str, FfiType::Str],
+            vec![FfiType::Map, FfiType::Str, FfiType::Bool],
             FfiType::I32,
         ),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,list>".into(),
+        symbol: "otter_builtin_map_set_list".into(),
+        signature: FfiSignature::new(
+            vec![FfiType::Map, FfiType::Str, FfiType::List],
+            FfiType::I32,
+        ),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,map>".into(),
+        symbol: "otter_builtin_map_set_map".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::Map], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,int>".into(),
+        symbol: "otter_builtin_map_set_int".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::I64], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,float>".into(),
+        symbol: "otter_builtin_map_set_float".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::F64], FfiType::I32),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,bool>".into(),
+        symbol: "otter_builtin_map_set_bool".into(),
+        signature: FfiSignature::new(
+            vec![FfiType::Map, FfiType::Str, FfiType::Bool],
+            FfiType::I32,
+        ),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,list>".into(),
+        symbol: "otter_builtin_map_set_list".into(),
+        signature: FfiSignature::new(
+            vec![FfiType::Map, FfiType::Str, FfiType::List],
+            FfiType::I32,
+        ),
+    });
+
+    registry.register(FfiFunction {
+        name: "set<map,map>".into(),
+        symbol: "otter_builtin_map_set_map".into(),
+        signature: FfiSignature::new(vec![FfiType::Map, FfiType::Str, FfiType::Map], FfiType::I32),
     });
 
     // Error handling functions
@@ -959,13 +1429,13 @@ fn register_builtin_symbols(registry: &SymbolRegistry) {
     registry.register(FfiFunction {
         name: "type_of<list>".into(),
         symbol: "otter_builtin_type_of_list".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::List], FfiType::Str),
     });
 
     registry.register(FfiFunction {
         name: "type_of<map>".into(),
         symbol: "otter_builtin_type_of_map".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::Map], FfiType::Str),
     });
 
     registry.register(FfiFunction {
@@ -1009,13 +1479,13 @@ fn register_builtin_symbols(registry: &SymbolRegistry) {
     registry.register(FfiFunction {
         name: "stringify<list>".into(),
         symbol: "otter_builtin_stringify_list".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::List], FfiType::Str),
     });
 
     registry.register(FfiFunction {
         name: "stringify<map>".into(),
         symbol: "otter_builtin_stringify_map".into(),
-        signature: FfiSignature::new(vec![FfiType::Opaque], FfiType::Str),
+        signature: FfiSignature::new(vec![FfiType::Map], FfiType::Str),
     });
 }
 

@@ -46,8 +46,10 @@ impl From<Span> for std::ops::Range<usize> {
 #[derive(Clone, PartialEq, Eq)]
 pub enum TokenKind {
     // Keywords
-    Fn,
-    Let,
+    Fn,     // Legacy: kept for backward compatibility
+    Def,    // Pythonic function definition
+    Lambda, // Pythonic lambda expression
+    Let,    // Optional: kept for backward compatibility
     Return,
     If,
     Else,
@@ -56,7 +58,10 @@ pub enum TokenKind {
     While,
     Break,
     Continue,
+    Pass,
     In,
+    Is,
+    Not,
     Use,
     From,
     As,
@@ -69,6 +74,11 @@ pub enum TokenKind {
     True,
     False,
     Print,
+    None,
+    Try,
+    Except,
+    Finally,
+    Raise,
 
     // Identifiers
     Identifier(String),
@@ -129,28 +139,38 @@ impl Hash for TokenKind {
         match self {
             // Keywords - use discriminant for efficiency
             TokenKind::Fn => 0u16.hash(state),
-            TokenKind::Let => 1u16.hash(state),
-            TokenKind::Return => 2u16.hash(state),
-            TokenKind::If => 3u16.hash(state),
-            TokenKind::Else => 4u16.hash(state),
-            TokenKind::Elif => 5u16.hash(state),
-            TokenKind::For => 6u16.hash(state),
-            TokenKind::While => 7u16.hash(state),
-            TokenKind::Break => 8u16.hash(state),
-            TokenKind::Continue => 9u16.hash(state),
-            TokenKind::In => 10u16.hash(state),
-            TokenKind::Use => 11u16.hash(state),
-            TokenKind::From => 12u16.hash(state),
-            TokenKind::As => 13u16.hash(state),
-            TokenKind::Pub => 14u16.hash(state),
-            TokenKind::Async => 15u16.hash(state),
-            TokenKind::Await => 16u16.hash(state),
-            TokenKind::Spawn => 17u16.hash(state),
-            TokenKind::Match => 18u16.hash(state),
-            TokenKind::Case => 19u16.hash(state),
-            TokenKind::True => 20u16.hash(state),
-            TokenKind::False => 21u16.hash(state),
-            TokenKind::Print => 22u16.hash(state),
+            TokenKind::Def => 0u16.hash(state), // Treat as Fn for compatibility (same semantics)
+            TokenKind::Lambda => 1u16.hash(state),
+            TokenKind::Let => 2u16.hash(state),
+            TokenKind::Return => 3u16.hash(state),
+            TokenKind::If => 4u16.hash(state),
+            TokenKind::Else => 5u16.hash(state),
+            TokenKind::Elif => 6u16.hash(state),
+            TokenKind::For => 7u16.hash(state),
+            TokenKind::While => 8u16.hash(state),
+            TokenKind::Break => 9u16.hash(state),
+            TokenKind::Continue => 10u16.hash(state),
+            TokenKind::Pass => 11u16.hash(state),
+            TokenKind::In => 12u16.hash(state),
+            TokenKind::Is => 13u16.hash(state),
+            TokenKind::Not => 14u16.hash(state),
+            TokenKind::Use => 15u16.hash(state),
+            TokenKind::From => 16u16.hash(state),
+            TokenKind::As => 17u16.hash(state),
+            TokenKind::Pub => 18u16.hash(state),
+            TokenKind::Async => 19u16.hash(state),
+            TokenKind::Await => 20u16.hash(state),
+            TokenKind::Spawn => 21u16.hash(state),
+            TokenKind::Match => 22u16.hash(state),
+            TokenKind::Case => 23u16.hash(state),
+            TokenKind::True => 24u16.hash(state),
+            TokenKind::False => 25u16.hash(state),
+            TokenKind::Print => 26u16.hash(state),
+            TokenKind::None => 27u16.hash(state),
+            TokenKind::Try => 28u16.hash(state),
+            TokenKind::Except => 29u16.hash(state),
+            TokenKind::Finally => 30u16.hash(state),
+            TokenKind::Raise => 31u16.hash(state),
 
             // Identifiers
             TokenKind::Identifier(name) => {
@@ -233,6 +253,8 @@ impl TokenKind {
         match self {
             // Keywords
             TokenKind::Fn => "fn",
+            TokenKind::Def => "def",
+            TokenKind::Lambda => "lambda",
             TokenKind::Let => "let",
             TokenKind::Return => "return",
             TokenKind::If => "if",
@@ -242,7 +264,10 @@ impl TokenKind {
             TokenKind::While => "while",
             TokenKind::Break => "break",
             TokenKind::Continue => "continue",
+            TokenKind::Pass => "pass",
             TokenKind::In => "in",
+            TokenKind::Is => "is",
+            TokenKind::Not => "not",
             TokenKind::Use => "use",
             TokenKind::From => "from",
             TokenKind::As => "as",
@@ -255,6 +280,11 @@ impl TokenKind {
             TokenKind::True => "true",
             TokenKind::False => "false",
             TokenKind::Print => "print",
+            TokenKind::None => "None",
+            TokenKind::Try => "try",
+            TokenKind::Except => "except",
+            TokenKind::Finally => "finally",
+            TokenKind::Raise => "raise",
 
             // Identifiers
             TokenKind::Identifier(_) => "identifier",
@@ -341,6 +371,8 @@ impl Token {
         matches!(
             self.kind,
             TokenKind::Fn
+                | TokenKind::Def
+                | TokenKind::Lambda
                 | TokenKind::Let
                 | TokenKind::Return
                 | TokenKind::If
@@ -350,8 +382,11 @@ impl Token {
                 | TokenKind::While
                 | TokenKind::Break
                 | TokenKind::Continue
+                | TokenKind::Pass
                 | TokenKind::In
-                |             TokenKind::Use
+                | TokenKind::Is
+                | TokenKind::Not
+                | TokenKind::Use
                 | TokenKind::From
                 | TokenKind::As
                 | TokenKind::Pub
@@ -363,6 +398,11 @@ impl Token {
                 | TokenKind::True
                 | TokenKind::False
                 | TokenKind::Print
+                | TokenKind::None
+                | TokenKind::Try
+                | TokenKind::Except
+                | TokenKind::Finally
+                | TokenKind::Raise
         )
     }
 
@@ -373,6 +413,7 @@ impl Token {
                 | TokenKind::StringLiteral(_)
                 | TokenKind::FString(_)
                 | TokenKind::Bool(_)
+                | TokenKind::None
         )
     }
 
@@ -398,6 +439,8 @@ impl Token {
                 | TokenKind::Gt
                 | TokenKind::LtEq
                 | TokenKind::GtEq
+                | TokenKind::Is
+                | TokenKind::Not
                 | TokenKind::Arrow
                 | TokenKind::Pipe
                 | TokenKind::Amp

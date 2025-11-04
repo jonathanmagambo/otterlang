@@ -43,7 +43,7 @@ cd otterlang
 
 # Create your first program
 cat > hello.otter << 'EOF'
-fn main:
+def main:
     print("Hello from OtterLang!")
 EOF
 
@@ -82,15 +82,27 @@ cargo install --path . --bin otter
 
 ### Syntax
 
-Indentation-based syntax (like Python):
+Indentation-based syntax (like Python). Uses `def` for functions:
 
 ```otter
-fn greet(name: string) -> string:
+def greet(name: string) -> string:
     return f"Hello, {name}!"
 
-fn main:
+struct Point:
+    x: float
+    y: float
+    
+    def distance(self) -> float:
+        return math.sqrt(self.x * self.x + self.y * self.y)
+
+def main:
     message = greet("World")
     print(message)
+    
+    # Pythonic struct initialization and methods
+    p = Point(x=3.0, y=4.0)
+    dist = p.distance()
+    print(f"Point: ({p.x}, {p.y}), distance: {dist}")
     
     # Control flow
     if message.len() > 10:
@@ -109,10 +121,10 @@ Automatically use any Rust crate without manual configuration:
 use rust:rand
 use rust:serde_json
 
-fn main:
+def main:
     # Auto-extracted from rustdoc JSON
-    let random = rand.random_f64()
-    let data = json.from_str("{\"key\": \"value\"}")
+    random = rand.random_f64()
+    data = json.from_str("{\"key\": \"value\"}")
     
     print(f"Random: {random}")
 ```
@@ -138,6 +150,44 @@ Built-in modules:
 - `otter:net` - Networking
 - `otter:http` - HTTP client/server
 
+### Exception Handling
+
+Python-style exception handling with zero-cost success path:
+
+```otter
+fn divide(x: i32, y: i32) -> i32:
+    if y == 0:
+        raise "Division by zero"
+    return x / y
+
+fn safe_operation:
+    try:
+        result = divide(10, 0)
+        print("Result: " + result)
+    except Error as e:
+        print("Caught error: " + e.message)
+    else:
+        print("No errors occurred")
+    finally:
+        print("Cleanup always runs")
+
+fn nested_exceptions:
+    try:
+        try:
+            raise "Inner error"
+        except Error:
+            print("Handled inner error")
+            raise "Outer error"
+    except Error:
+        print("Handled outer error")
+```
+
+**Features:**
+- `try/except/else/finally` blocks (Python-compatible syntax)
+- Exception propagation with automatic cleanup
+- Zero-cost abstractions (no overhead on success path)
+- Type-safe error handling at compile time
+
 ## Performance
 
 Benchmarked against C and Rust (100M iterations):
@@ -148,7 +198,7 @@ Benchmarked against C and Rust (100M iterations):
 | Rust | 0.080s | 1.14x |
 | **OtterLang** | **0.090s** | **1.28x** |
 
-Run `examples/benchmark.sh` to test yourself.
+Run `examples/benchmarks/benchmark.sh` to test yourself.
 
 ## CLI Commands
 
@@ -162,10 +212,23 @@ otter profile memory program.otter # Profile memory
 
 ## Examples
 
-- `examples/advanced_pipeline.otter` - Complex computation
-- `examples/task_benchmark.otter` - Task concurrency
-- `examples/ffi_rand_demo.otter` - Transparent FFI
-- `examples/ffi_rand_advanced.otter` - Advanced FFI usage
+**Basic Programs:**
+- `examples/basic/exception_basics.otter` - Basic exception handling
+- `examples/basic/exception_advanced.otter` - Advanced try/except/else/finally
+- `examples/basic/exception_resource.otter` - Resource management patterns
+- `examples/basic/exception_validation.otter` - Data validation with exceptions
+- `examples/basic/struct_methods_demo.otter` - Structs with methods (Pythonic)
+- `examples/basic/struct_demo.otter` - Pythonic struct initialization
+- `examples/basic/advanced_pipeline.otter` - Complex computation
+- `examples/basic/task_benchmark.otter` - Task concurrency
+
+**FFI Examples:**
+- `examples/ffi/ffi_rand_demo.otter` - Transparent FFI basics
+- `examples/ffi/ffi_rand_advanced.otter` - Advanced FFI usage
+
+**Benchmarks:**
+- `examples/benchmarks/pi_leibniz.otter` - Performance comparison
+- `examples/benchmarks/benchmark.sh` - Run benchmarks
 
 ## Status
 

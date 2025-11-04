@@ -120,7 +120,11 @@ impl MemoryProfiler {
             if current <= peak {
                 break;
             }
-            if self.peak_memory.compare_exchange_weak(peak, current, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            if self
+                .peak_memory
+                .compare_exchange_weak(peak, current, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
                 break;
             }
         }
@@ -239,4 +243,3 @@ static GLOBAL_PROFILER: once_cell::sync::Lazy<MemoryProfiler> =
 pub fn get_profiler() -> &'static MemoryProfiler {
     &GLOBAL_PROFILER
 }
-

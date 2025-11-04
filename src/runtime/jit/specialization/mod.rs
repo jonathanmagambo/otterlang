@@ -35,7 +35,7 @@ impl From<FfiType> for RuntimeType {
             FfiType::I64 => RuntimeType::I64,
             FfiType::F64 => RuntimeType::F64,
             FfiType::Str => RuntimeType::Str,
-            FfiType::Opaque => RuntimeType::Opaque,
+            FfiType::Opaque | FfiType::List | FfiType::Map => RuntimeType::Opaque,
         }
     }
 }

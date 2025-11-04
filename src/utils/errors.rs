@@ -130,10 +130,13 @@ pub fn emit_diagnostics(diagnostics: &[Diagnostic], source: &str) {
         if let Some(help) = diagnostic.help() {
             report = report.with_note(format!("ℹ️  {}", help));
         } else {
-            report = report.with_note("For more information, re-run with --debug to inspect tokens and AST.");
+            report = report
+                .with_note("For more information, re-run with --debug to inspect tokens and AST.");
         }
 
-        let _ = report.finish().print((diagnostic.source_id().to_string(), Source::from(source)));
+        let _ = report
+            .finish()
+            .print((diagnostic.source_id().to_string(), Source::from(source)));
     }
 }
 

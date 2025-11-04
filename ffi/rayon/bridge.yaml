@@ -1,8 +1,0 @@
-dependency:
-  name: "rayon"
-  version: "0.8"
-functions:
-  - name: "num_threads"
-    rust_path: "rayon::current_num_threads()"
-    result: "I64"
-    doc: "Returns the size of Rayon\'s global thread pool."

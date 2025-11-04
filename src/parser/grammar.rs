@@ -2,8 +2,8 @@ use chumsky::prelude::*;
 use chumsky::Stream;
 
 use crate::ast::nodes::{
-    BinaryOp, Block, Expr, FStringPart, Function, Literal, MatchArm, NumberLiteral, Param, Pattern, Program, Statement,
-    Type, UnaryOp,
+    BinaryOp, Block, ExceptHandler, Expr, FStringPart, Function, Literal, MatchArm, NumberLiteral,
+    Param, Pattern, Program, Statement, Type, UnaryOp,
 };
 use crate::lexer::token::{Span, Token, TokenKind};
 use crate::utils::errors::{Diagnostic, DiagnosticSeverity};
@@ -28,7 +28,8 @@ impl ParserError {
             diag = diag.with_suggestion("Check for missing or extra tokens, or syntax errors")
                 .with_help("Ensure all statements are properly terminated and parentheses/brackets are balanced.");
         } else if self.message.contains("unexpected end of input") {
-            diag = diag.with_suggestion("Check for missing closing brackets, parentheses, or quotes")
+            diag = diag
+                .with_suggestion("Check for missing closing brackets, parentheses, or quotes")
                 .with_help("The parser reached the end of the file while expecting more tokens.");
         }
 
@@ -77,8 +78,8 @@ fn identifier_parser() -> impl Parser<TokenKind, String, Error = Simple<TokenKin
 fn identifier_or_keyword_parser() -> impl Parser<TokenKind, String, Error = Simple<TokenKind>> {
     select! {
         TokenKind::Identifier(name) => name,
-        TokenKind::Fn => "fn".to_string(),
-        TokenKind::Let => "let".to_string(),
+        TokenKind::Def => "def".to_string(),
+        TokenKind::Lambda => "lambda".to_string(),
         TokenKind::Return => "return".to_string(),
         TokenKind::If => "if".to_string(),
         TokenKind::Else => "else".to_string(),
@@ -87,7 +88,10 @@ fn identifier_or_keyword_parser() -> impl Parser<TokenKind, String, Error = Simp
         TokenKind::While => "while".to_string(),
         TokenKind::Break => "break".to_string(),
         TokenKind::Continue => "continue".to_string(),
+        TokenKind::Pass => "pass".to_string(),
         TokenKind::In => "in".to_string(),
+        TokenKind::Is => "is".to_string(),
+        TokenKind::Not => "not".to_string(),
         TokenKind::Use => "use".to_string(),
         TokenKind::From => "from".to_string(),
         TokenKind::As => "as".to_string(),
@@ -99,6 +103,7 @@ fn identifier_or_keyword_parser() -> impl Parser<TokenKind, String, Error = Simp
         TokenKind::True => "true".to_string(),
         TokenKind::False => "false".to_string(),
         TokenKind::Print => "print".to_string(),
+        TokenKind::None => "None".to_string(),
     }
 }
 
@@ -109,7 +114,7 @@ fn type_parser() -> impl Parser<TokenKind, Type, Error = Simple<TokenKind>> {
                 ty.separated_by(just(TokenKind::Comma))
                     .allow_trailing()
                     .delimited_by(just(TokenKind::Lt), just(TokenKind::Gt))
-                    .or_not()
+                    .or_not(),
             )
             .map(|(base, args)| match args {
                 Some(args) => Type::Generic { base, args },
@@ -243,22 +248,27 @@ fn literal_expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKin
         TokenKind::True => Expr::Literal(Literal::Bool(true)),
         TokenKind::False => Expr::Literal(Literal::Bool(false)),
     };
+    let none_lit = just(TokenKind::None).to(Expr::Literal(Literal::None));
     let fstring_lit = select! { TokenKind::FString(content) => parse_fstring(content) };
     let unit_lit = just(TokenKind::LParen)
         .then(just(TokenKind::RParen))
         .map(|_| Expr::Literal(Literal::Unit));
-    choice((fstring_lit, string_lit, number_lit, bool_lit, unit_lit))
+    choice((
+        fstring_lit,
+        string_lit,
+        number_lit,
+        bool_lit,
+        none_lit,
+        unit_lit,
+    ))
 }
 
 fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
     recursive(|expr| {
         let lambda_param = identifier_parser()
-            .then(
-                just(TokenKind::Colon)
-                    .ignore_then(type_parser())
-                    .or_not(),
-            )
-            .map(|(name, ty)| Param::new(name, ty));
+            .then(just(TokenKind::Colon).ignore_then(type_parser()).or_not())
+            .then(just(TokenKind::Equals).ignore_then(expr.clone()).or_not())
+            .map(|((name, ty), default)| Param::new(name, ty, default));
 
         let lambda_params = lambda_param
             .separated_by(just(TokenKind::Comma))
@@ -267,9 +277,7 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
             .or_not()
             .map(|params| params.unwrap_or_default());
 
-        let lambda_ret_type = just(TokenKind::Arrow)
-            .ignore_then(type_parser())
-            .or_not();
+        let lambda_ret_type = just(TokenKind::Arrow).ignore_then(type_parser()).or_not();
 
         let lambda_block = recursive(|_block| {
             let lambda_stmt = recursive(|_stmt| {
@@ -278,28 +286,25 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
                     .ignore_then(expr.clone().or_not())
                     .map(Statement::Return);
 
-                choice((
-                    lambda_return_stmt,
-                    expr.clone().map(Statement::Expr),
-                ))
-                .then_ignore(just(TokenKind::Newline).or_not())
-                .boxed()
+                choice((lambda_return_stmt, expr.clone().map(Statement::Expr)))
+                    .then_ignore(just(TokenKind::Newline).or_not())
+                    .boxed()
             });
 
-            lambda_stmt
-                .repeated()
-                .at_least(1)
-                .map(Block::new)
+            lambda_stmt.repeated().at_least(1).map(Block::new)
         });
 
-        let lambda_expr = just(TokenKind::Fn)
+        // Pythonic: only 'lambda' for lambda expressions
+        let lambda_keyword = just(TokenKind::Lambda);
+
+        let lambda_expr = lambda_keyword
             .ignore_then(lambda_params)
             .then(lambda_ret_type)
             .then_ignore(just(TokenKind::Colon))
             .then(
-                just(TokenKind::Newline)
-                    .ignore_then(lambda_block)
-                    .or(expr.clone().map(|expr| Block::new(vec![Statement::Expr(expr)])))
+                just(TokenKind::Newline).ignore_then(lambda_block).or(expr
+                    .clone()
+                    .map(|expr| Block::new(vec![Statement::Expr(expr)]))),
             )
             .map(|((params, ret_ty), body)| Expr::Lambda {
                 params,
@@ -307,18 +312,77 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
                 body,
             });
 
+        // Pythonic struct initialization: Point(x=1.0, y=2.0)
+        let struct_init_pythonic = identifier_parser()
+            .then(
+                // Keyword argument: name=value
+                identifier_parser()
+                    .then_ignore(just(TokenKind::Equals))
+                    .then(expr.clone())
+                    .separated_by(just(TokenKind::Comma))
+                    .allow_trailing()
+                    .delimited_by(just(TokenKind::LParen), just(TokenKind::RParen)),
+            )
+            .map(|(name, fields)| Expr::Struct {
+                name,
+                fields: fields
+                    .into_iter()
+                    .map(|(fname, val)| (fname, val))
+                    .collect(),
+            });
+
+        let list_comprehension = expr
+            .clone()
+            .then_ignore(just(TokenKind::For))
+            .then(identifier_parser())
+            .then_ignore(just(TokenKind::In))
+            .then(expr.clone())
+            .then(just(TokenKind::If).ignore_then(expr.clone()).or_not())
+            .map(
+                |(((element, var), iterable), condition)| Expr::ListComprehension {
+                    element: Box::new(element),
+                    var,
+                    iterable: Box::new(iterable),
+                    condition: condition.map(Box::new),
+                },
+            )
+            .delimited_by(just(TokenKind::LBracket), just(TokenKind::RBracket));
+
+        let dict_comprehension = expr
+            .clone()
+            .then_ignore(just(TokenKind::Colon))
+            .then(expr.clone())
+            .then_ignore(just(TokenKind::For))
+            .then(identifier_parser())
+            .then_ignore(just(TokenKind::In))
+            .then(expr.clone())
+            .then(just(TokenKind::If).ignore_then(expr.clone()).or_not())
+            .map(
+                |((((key, value), var), iterable), condition)| Expr::DictComprehension {
+                    key: Box::new(key),
+                    value: Box::new(value),
+                    var,
+                    iterable: Box::new(iterable),
+                    condition: condition.map(Box::new),
+                },
+            )
+            .delimited_by(just(TokenKind::LBrace), just(TokenKind::RBrace));
+
         let atom = choice((
             literal_expr_parser(),
             lambda_expr,
+            struct_init_pythonic,
             identifier_parser().map(Expr::Identifier),
             expr.clone()
                 .delimited_by(just(TokenKind::LParen), just(TokenKind::RParen)),
+            list_comprehension,
             // Array literal [expr, expr, ...]
             expr.clone()
                 .separated_by(just(TokenKind::Comma))
                 .allow_trailing()
                 .delimited_by(just(TokenKind::LBracket), just(TokenKind::RBracket))
                 .map(Expr::Array),
+            dict_comprehension,
             // Dictionary literal {key: value, ...}
             expr.clone()
                 .then_ignore(just(TokenKind::Colon))
@@ -373,6 +437,7 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
         let unary = choice((
             just(TokenKind::Minus).to(UnaryOp::Neg),
             just(TokenKind::Bang).to(UnaryOp::Not),
+            just(TokenKind::Not).to(UnaryOp::Not),
         ))
         .then(choice((
             await_expr.clone(),
@@ -435,20 +500,29 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
                 }
             });
 
+        let is_operator = just(TokenKind::Is)
+            .ignore_then(just(TokenKind::Not).or_not())
+            .map(|not_opt| {
+                if not_opt.is_some() {
+                    BinaryOp::IsNot
+                } else {
+                    BinaryOp::Is
+                }
+            });
+
+        let comparison_op = choice((
+            just(TokenKind::EqEq).to(BinaryOp::Eq),
+            just(TokenKind::Neq).to(BinaryOp::Ne),
+            just(TokenKind::Lt).to(BinaryOp::Lt),
+            just(TokenKind::Gt).to(BinaryOp::Gt),
+            just(TokenKind::LtEq).to(BinaryOp::LtEq),
+            just(TokenKind::GtEq).to(BinaryOp::GtEq),
+            is_operator,
+        ));
+
         let comparison = range
             .clone()
-            .then(
-                choice((
-                    just(TokenKind::EqEq).to(BinaryOp::Eq),
-                    just(TokenKind::Neq).to(BinaryOp::Ne),
-                    just(TokenKind::Lt).to(BinaryOp::Lt),
-                    just(TokenKind::Gt).to(BinaryOp::Gt),
-                    just(TokenKind::LtEq).to(BinaryOp::LtEq),
-                    just(TokenKind::GtEq).to(BinaryOp::GtEq),
-                ))
-                .then(range.clone())
-                .repeated(),
-            )
+            .then(comparison_op.then(range.clone()).repeated())
             .foldl(|left, (op, right)| Expr::Binary {
                 left: Box::new(left),
                 op,
@@ -471,38 +545,43 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
                 right: Box::new(right),
             });
 
-        // Match expression: match expr { case pattern => body, ... }
+        // Pythonic match expression: match expr: case pattern: body
+        let newline = just(TokenKind::Newline).repeated().at_least(1);
         let match_expr = just(TokenKind::Match)
             .ignore_then(logical.clone())
-            .then_ignore(just(TokenKind::LBrace))
             .then(
-                just(TokenKind::Case)
-                    .ignore_then(pattern_parser(expr.clone()))
-                    .then(
-                        just(TokenKind::Arrow)
-                            .ignore_then(logical.clone())
-                            .or_not()
+                just(TokenKind::Colon)
+                    .ignore_then(newline.clone())
+                    .ignore_then(just(TokenKind::Indent))
+                    .ignore_then(
+                        just(TokenKind::Case)
+                            .ignore_then(pattern_parser(expr.clone()))
+                            .then_ignore(just(TokenKind::Colon))
+                            .then_ignore(newline.clone())
+                            .then(
+                                logical
+                                    .clone()
+                                    .then_ignore(newline.clone())
+                                    .repeated()
+                                    .at_least(1)
+                                    .map(|exprs| {
+                                        // Take the last expression as the body
+                                        exprs
+                                            .last()
+                                            .cloned()
+                                            .unwrap_or_else(|| Expr::Literal(Literal::Unit))
+                                    }),
+                            )
+                            .map(|(pattern, body)| MatchArm {
+                                pattern,
+                                guard: None,
+                                body,
+                            })
+                            .separated_by(newline.clone())
+                            .at_least(1),
                     )
-                    .map(|(pattern, guard)| {
-                        let guard_expr = guard;
-                        (pattern, guard_expr)
-                    })
-                    .then(
-                        just(TokenKind::Colon)
-                            .ignore_then(logical.clone())
-                            .or_not()
-                            .map(|body| body.unwrap_or_else(|| Expr::Literal(Literal::Unit)))
-                    )
-                    .map(|((pattern, guard), body)| MatchArm {
-                        pattern,
-                        guard,
-                        body,
-                    })
-                    .separated_by(just(TokenKind::Comma))
-                    .allow_trailing()
-                    .at_least(1)
+                    .then_ignore(just(TokenKind::Dedent)),
             )
-            .then_ignore(just(TokenKind::RBrace))
             .map(|(value, arms)| Expr::Match {
                 value: Box::new(value),
                 arms,
@@ -518,42 +597,36 @@ fn pattern_parser(
     _expr: Recursive<'_, TokenKind, Expr, Simple<TokenKind>>,
 ) -> impl Parser<TokenKind, Pattern, Error = Simple<TokenKind>> {
     recursive(|pattern| {
-        let wildcard = just(TokenKind::Identifier("_".to_string()))
-            .map(|_| Pattern::Wildcard);
-        
-        let literal_pattern = literal_expr_parser()
-            .map(|expr| match expr {
-                Expr::Literal(lit) => Pattern::Literal(lit),
-                _ => Pattern::Wildcard, // Fallback
-            });
-        
-        let identifier_pattern = identifier_parser()
-            .map(Pattern::Identifier);
-        
+        let wildcard = just(TokenKind::Identifier("_".to_string())).map(|_| Pattern::Wildcard);
+
+        let literal_pattern = literal_expr_parser().map(|expr| match expr {
+            Expr::Literal(lit) => Pattern::Literal(lit),
+            _ => Pattern::Wildcard, // Fallback
+        });
+
+        let identifier_pattern = identifier_parser().map(Pattern::Identifier);
+
         let struct_pattern = identifier_parser()
             .then(
                 just(TokenKind::LBrace)
                     .ignore_then(
                         identifier_parser()
-                            .then(
-                                just(TokenKind::Colon)
-                                    .ignore_then(pattern.clone())
-                                    .or_not()
-                            )
+                            .then(just(TokenKind::Colon).ignore_then(pattern.clone()).or_not())
                             .separated_by(just(TokenKind::Comma))
-                            .allow_trailing()
+                            .allow_trailing(),
                     )
                     .then_ignore(just(TokenKind::RBrace))
-                    .or_not()
+                    .or_not(),
             )
             .map(|(name, fields)| Pattern::Struct {
                 name,
-                fields: fields.unwrap_or_default()
+                fields: fields
+                    .unwrap_or_default()
                     .into_iter()
                     .map(|(fname, pat)| (fname, pat))
                     .collect(),
             });
-        
+
         let array_pattern = pattern
             .clone()
             .separated_by(just(TokenKind::Comma))
@@ -562,13 +635,10 @@ fn pattern_parser(
             .then(
                 just(TokenKind::DoubleDot)
                     .ignore_then(identifier_parser())
-                    .or_not()
+                    .or_not(),
             )
-            .map(|(patterns, rest)| Pattern::Array {
-                patterns,
-                rest,
-            });
-        
+            .map(|(patterns, rest)| Pattern::Array { patterns, rest });
+
         choice((
             wildcard,
             literal_pattern,
@@ -601,37 +671,35 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
 
     let pub_keyword = just(TokenKind::Pub).or_not();
 
+    // Support both direct assignment (Pythonic) and explicit let declarations
     let let_stmt = pub_keyword
         .clone()
-        .then(just(TokenKind::Let))
+        .then(just(TokenKind::Let).or_not())
         .then(identifier_parser())
         .then_ignore(just(TokenKind::Equals))
         .then(expr.clone())
-        .map(|(((pub_kw, _), name), expr)| Statement::Let {
+        .map(|(((pub_kw, _let), name), expr)| Statement::Let {
             name,
             expr,
             public: pub_kw.is_some(),
         });
 
+    // Augmented assignments only (Pythonic: x += y, x -= y, etc.)
+    // Simple assignments (=) are handled by let_stmt (declaration or reassignment)
     let assignment_stmt = identifier_parser()
         .then(choice((
-            just(TokenKind::Equals).to(None),
-            just(TokenKind::PlusEq).to(Some(BinaryOp::Add)),
-            just(TokenKind::MinusEq).to(Some(BinaryOp::Sub)),
-            just(TokenKind::StarEq).to(Some(BinaryOp::Mul)),
-            just(TokenKind::SlashEq).to(Some(BinaryOp::Div)),
+            just(TokenKind::PlusEq).to(BinaryOp::Add),
+            just(TokenKind::MinusEq).to(BinaryOp::Sub),
+            just(TokenKind::StarEq).to(BinaryOp::Mul),
+            just(TokenKind::SlashEq).to(BinaryOp::Div),
         )))
         .then(expr.clone())
         .map(|((name, op), rhs)| {
-            let expr = if let Some(op) = op {
-                // Desugar: x += y becomes x = x + y
-                Expr::Binary {
-                    op,
-                    left: Box::new(Expr::Identifier(name.clone())),
-                    right: Box::new(rhs),
-                }
-            } else {
-                rhs
+            // Desugar: x += y becomes x = x + y
+            let expr = Expr::Binary {
+                op,
+                left: Box::new(Expr::Identifier(name.clone())),
+                right: Box::new(rhs),
             };
             Statement::Assignment { name, expr }
         });
@@ -648,19 +716,17 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         just(TokenKind::Colon).to(":".to_string()),
     ));
 
-    let module_path = path_segment.clone().then(
-        path_separator
-            .then(path_segment.clone())
-            .repeated(),
-    )
-    .map(|(first, rest)| {
-        let mut module = first;
-        for (sep, segment) in rest {
-            module.push_str(&sep);
-            module.push_str(&segment);
-        }
-        module
-    });
+    let module_path = path_segment
+        .clone()
+        .then(path_separator.then(path_segment.clone()).repeated())
+        .map(|(first, rest)| {
+            let mut module = first;
+            for (sep, segment) in rest {
+                module.push_str(&sep);
+                module.push_str(&segment);
+            }
+            module
+        });
 
     let use_stmt = just(TokenKind::Use)
         .ignore_then(module_path)
@@ -673,6 +739,7 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
 
     let break_stmt = just(TokenKind::Break).map(|_| Statement::Break);
     let continue_stmt = just(TokenKind::Continue).map(|_| Statement::Continue);
+    let pass_stmt = just(TokenKind::Pass).map(|_| Statement::Pass);
 
     // Create a recursive parser for statements
     let statement = recursive(|stmt| {
@@ -714,12 +781,14 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
                     )
                     .or_not(),
             )
-            .map(|(((cond, then_block), elif_blocks), else_block)| Statement::If {
-                cond: Box::new(cond),
-                then_block,
-                elif_blocks,
-                else_block: else_block.map(|(_, block)| block),
-            });
+            .map(
+                |(((cond, then_block), elif_blocks), else_block)| Statement::If {
+                    cond: Box::new(cond),
+                    then_block,
+                    elif_blocks,
+                    else_block: else_block.map(|(_, block)| block),
+                },
+            );
 
         let for_stmt = just(TokenKind::For)
             .ignore_then(identifier_parser())
@@ -753,6 +822,76 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
             )
             .map(|(cond, body)| Statement::While { cond, body });
 
+        let except_handler = just(TokenKind::Except)
+            .ignore_then(
+                // Optional type specification
+                type_parser().or_not()
+            )
+            .then(
+                // Optional 'as name' clause
+                just(TokenKind::As)
+                    .ignore_then(identifier_parser())
+                    .or_not()
+            )
+            .then_ignore(just(TokenKind::Colon))
+            .then_ignore(newline.clone())
+            .then(
+                stmt.clone()
+                    .repeated()
+                    .at_least(1)
+                    .delimited_by(just(TokenKind::Indent), just(TokenKind::Dedent))
+                    .map(Block::new),
+            )
+            .map(|((exception_type, alias), body)| ExceptHandler::new(exception_type, alias, body));
+
+        let try_stmt = just(TokenKind::Try)
+            .ignore_then(just(TokenKind::Colon))
+            .ignore_then(newline.clone())
+            .then(
+                stmt.clone()
+                    .repeated()
+                    .at_least(1)
+                    .delimited_by(just(TokenKind::Indent), just(TokenKind::Dedent))
+                    .map(Block::new),
+            )
+            .then(except_handler.repeated())
+            .then(
+                just(TokenKind::Else)
+                    .ignore_then(just(TokenKind::Colon))
+                    .ignore_then(newline.clone())
+                    .then(
+                        stmt.clone()
+                            .repeated()
+                            .at_least(1)
+                            .delimited_by(just(TokenKind::Indent), just(TokenKind::Dedent))
+                            .map(Block::new),
+                    )
+                    .or_not(),
+            )
+            .then(
+                just(TokenKind::Finally)
+                    .ignore_then(just(TokenKind::Colon))
+                    .ignore_then(newline.clone())
+                    .then(
+                        stmt.clone()
+                            .repeated()
+                            .at_least(1)
+                            .delimited_by(just(TokenKind::Indent), just(TokenKind::Dedent))
+                            .map(Block::new),
+                    )
+                    .or_not(),
+            )
+            .map(|((((_try, body), handlers), else_block), finally_block)| Statement::Try {
+                body,
+                handlers,
+                else_block: else_block.map(|(_else, block)| block),
+                finally_block: finally_block.map(|(_finally, block)| block),
+            });
+
+        let raise_stmt = just(TokenKind::Raise)
+            .ignore_then(expr.clone().or_not())
+            .map(Statement::Raise);
+
         choice((
             print_stmt,
             return_stmt,
@@ -764,7 +903,10 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
             while_stmt,
             break_stmt,
             continue_stmt,
-            expr.map(Statement::Expr),
+            pass_stmt,
+            try_stmt,
+            raise_stmt,
+            expr.clone().map(Statement::Expr),
         ))
         .then_ignore(newline.clone().or_not())
         .boxed()
@@ -778,12 +920,9 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .map(Block::new);
 
     let function_param = identifier_parser()
-        .then(
-            just(TokenKind::Colon)
-                .ignore_then(type_parser())
-                .or_not(),
-        )
-        .map(|(name, ty)| Param::new(name, ty));
+        .then(just(TokenKind::Colon).ignore_then(type_parser()).or_not())
+        .then(just(TokenKind::Equals).ignore_then(expr.clone()).or_not())
+        .map(|((name, ty), default)| Param::new(name, ty, default));
 
     let function_params = function_param
         .separated_by(just(TokenKind::Comma))
@@ -792,13 +931,14 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .or_not()
         .map(|params| params.unwrap_or_default());
 
-    let function_ret_type = just(TokenKind::Arrow)
-        .ignore_then(type_parser())
-        .or_not();
+    let function_ret_type = just(TokenKind::Arrow).ignore_then(type_parser()).or_not();
+
+    // Support both 'def' (Pythonic) and 'fn' (legacy) for function definitions
+    let function_keyword = just(TokenKind::Def).or(just(TokenKind::Fn));
 
     let function = pub_keyword
         .clone()
-        .then(just(TokenKind::Fn))
+        .then(function_keyword.clone())
         .then(identifier_parser())
         .then(function_params)
         .then(function_ret_type)
@@ -815,7 +955,10 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .map(Statement::Function)
         .then_ignore(newline.clone().or_not());
 
-    // Struct definition: struct Name<T> { field: Type, ... }
+    // Pythonic struct definition: struct Name<T>:
+    //     field: Type
+    //     def method(self, ...) -> ReturnType:
+    //         ...
     let struct_generics = identifier_parser()
         .separated_by(just(TokenKind::Comma))
         .allow_trailing()
@@ -828,26 +971,89 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .then(type_parser())
         .map(|(name, ty)| (name, ty));
 
-    let struct_fields = struct_field
+    // Parse struct body: fields and methods (indented)
+    // Pythonic: struct Point:
+    //     x: float
+    //     y: float
+    //     def distance(self) -> float:
+    //         return math.sqrt(self.x * self.x + self.y * self.y)
+
+    // Field definition
+    let struct_field_def = struct_field.map(|field| (Some(field), None::<Function>));
+
+    // Method definition (def method(self, ...) -> ReturnType: ...)
+    // Recreate parsers for method definition
+    let method_function_param = identifier_parser()
+        .then(just(TokenKind::Colon).ignore_then(type_parser()).or_not())
+        .then(just(TokenKind::Equals).ignore_then(expr.clone()).or_not())
+        .map(|((name, ty), default)| Param::new(name, ty, default));
+
+    let method_function_params = method_function_param
         .separated_by(just(TokenKind::Comma))
         .allow_trailing()
-        .delimited_by(just(TokenKind::LBrace), just(TokenKind::RBrace))
+        .delimited_by(just(TokenKind::LParen), just(TokenKind::RParen))
         .or_not()
-        .map(|fields| fields.unwrap_or_default());
+        .map(|params| params.unwrap_or_default());
+
+    let method_function_ret_type = just(TokenKind::Arrow).ignore_then(type_parser()).or_not();
+
+    let struct_method_def = function_keyword
+        .clone()
+        .then(identifier_parser())
+        .then(method_function_params)
+        .then(method_function_ret_type)
+        .then_ignore(just(TokenKind::Colon))
+        .then_ignore(newline.clone())
+        .then(block.clone())
+        .map(|((((_kw, name), params), ret_ty), body)| {
+            // Methods automatically get 'self' as first parameter if not present
+            let mut method_params = params;
+            if method_params.is_empty() || method_params[0].name != "self" {
+                // Add self parameter at the beginning
+                let self_type = Type::Simple("Self".to_string());
+                let self_param = Param::new("self".to_string(), Some(self_type), None);
+                method_params.insert(0, self_param);
+            }
+            Function::new(name, method_params, ret_ty, body)
+        })
+        .map(|method| (None::<(String, Type)>, Some(method)));
+
+    let struct_body = choice((struct_field_def, struct_method_def))
+        .repeated()
+        .at_least(0)
+        .then_ignore(newline.clone().or_not())
+        .map(|items| {
+            let mut fields = Vec::new();
+            let mut methods = Vec::new();
+            for (field, method) in items {
+                if let Some(f) = field {
+                    fields.push(f);
+                }
+                if let Some(m) = method {
+                    methods.push(m);
+                }
+            }
+            (fields, methods)
+        });
 
     let struct_def = pub_keyword
         .clone()
-        .then(just(TokenKind::Identifier("struct".to_string()))) // Using identifier since "struct" isn't a keyword yet
+        .then(just(TokenKind::Identifier("struct".to_string())))
         .then(identifier_parser())
         .then(struct_generics)
-        .then(struct_fields)
+        .then_ignore(just(TokenKind::Colon))
+        .then_ignore(newline.clone())
+        .then(struct_body.delimited_by(just(TokenKind::Indent), just(TokenKind::Dedent)))
         .then_ignore(newline.clone().or_not())
-        .map(|((((pub_kw, _), name), generics), fields)| Statement::Struct {
-            name,
-            fields,
-            public: pub_kw.is_some(),
-            generics,
-        });
+        .map(
+            |((((pub_kw, _), name), generics), (fields, methods))| Statement::Struct {
+                name,
+                fields,
+                methods,
+                public: pub_kw.is_some(),
+                generics,
+            },
+        );
 
     // Type alias: type Name<T> = Type
     let type_alias_generics = identifier_parser()
@@ -865,12 +1071,14 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .then_ignore(just(TokenKind::Equals))
         .then(type_parser())
         .then_ignore(newline.clone().or_not())
-        .map(|((((pub_kw, _), name), generics), target)| Statement::TypeAlias {
-            name,
-            target,
-            public: pub_kw.is_some(),
-            generics,
-        });
+        .map(
+            |((((pub_kw, _), name), generics), target)| Statement::TypeAlias {
+                name,
+                target,
+                public: pub_kw.is_some(),
+                generics,
+            },
+        );
 
     newline
         .clone()

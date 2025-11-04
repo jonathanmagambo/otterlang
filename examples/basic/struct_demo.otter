@@ -1,0 +1,22 @@
+# Pythonic Struct Initialization Demo
+
+struct Point:
+    x: float
+    y: float
+
+struct Person:
+    name: string
+    age: int
+
+def main:
+    # Pythonic style: Point(x=1.0, y=2.0)
+    p1 = Point(x=1.0, y=2.0)
+    print(f"Point 1: ({p1.x}, {p1.y})")
+    
+    p2 = Point(x=3.0, y=4.0)
+    print(f"Point 2: ({p2.x}, {p2.y})")
+    
+    # Person struct
+    person = Person(name="Otter", age=42)
+    print(f"Person: {person.name}, age {person.age}")
+

@@ -42,8 +42,15 @@ impl LexerError {
                 self.to_string(),
             )
             .with_suggestion("Use spaces instead of tabs for indentation")
-            .with_help("OtterLang uses spaces for indentation. Configure your editor to use spaces."),
-            LexerError::IndentationMismatch { span, expected, found, .. } => Diagnostic::new(
+            .with_help(
+                "OtterLang uses spaces for indentation. Configure your editor to use spaces.",
+            ),
+            LexerError::IndentationMismatch {
+                span,
+                expected,
+                found,
+                ..
+            } => Diagnostic::new(
                 DiagnosticSeverity::Error,
                 source_id,
                 span.clone(),
@@ -66,19 +73,26 @@ impl LexerError {
                     span.clone(),
                     self.to_string(),
                 );
-                
+
                 // Provide suggestions for common typos
                 match ch {
-                    '`' => diag = diag.with_suggestion("Did you mean a single quote (') or double quote (\")?"),
+                    '`' => {
+                        diag = diag.with_suggestion(
+                            "Did you mean a single quote (') or double quote (\")?",
+                        )
+                    }
                     '~' => diag = diag.with_suggestion("Did you mean tilde (~) or negation (not)?"),
-                    '@' => diag = diag.with_suggestion("Did you mean the at symbol (@) or member access (.)?"),
+                    '@' => {
+                        diag = diag
+                            .with_suggestion("Did you mean the at symbol (@) or member access (.)?")
+                    }
                     _ => {
                         if ch.is_ascii_punctuation() {
                             diag = diag.with_suggestion("Check for typos or invalid characters");
                         }
                     }
                 }
-                
+
                 diag.with_help("This character is not valid in OtterLang syntax.")
             }
         }
@@ -600,8 +614,10 @@ impl LexerState {
 
         let value = unsafe { std::str::from_utf8_unchecked(&self.source[start..self.offset]) };
         let kind = match value {
-            "fn" => TokenKind::Fn,
-            "let" => TokenKind::Let,
+            "fn" => TokenKind::Fn,         // Legacy: kept for backward compatibility
+            "def" => TokenKind::Def,       // Pythonic function definition
+            "lambda" => TokenKind::Lambda, // Pythonic lambda expression
+            "let" => TokenKind::Let,       // Optional: kept for backward compatibility
             "return" => TokenKind::Return,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
@@ -611,6 +627,8 @@ impl LexerState {
             "break" => TokenKind::Break,
             "continue" => TokenKind::Continue,
             "in" => TokenKind::In,
+            "is" => TokenKind::Is,
+            "not" => TokenKind::Not,
             "use" => TokenKind::Use,
             "from" => TokenKind::From,
             "as" => TokenKind::As,
@@ -623,6 +641,12 @@ impl LexerState {
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "print" => TokenKind::Print,
+            "pass" => TokenKind::Pass,
+            "None" | "none" => TokenKind::None,
+            "try" => TokenKind::Try,
+            "except" => TokenKind::Except,
+            "finally" => TokenKind::Finally,
+            "raise" => TokenKind::Raise,
             _ => TokenKind::Identifier(value.to_string()),
         };
 

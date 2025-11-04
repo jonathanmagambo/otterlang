@@ -74,11 +74,11 @@ refactor: Simplify lexer tokenization logic
 
 ## Areas for Contribution
 
-- **Language features**: Syntax improvements, new constructs
+- **Language features**: Syntax improvements, new constructs (Pythonic style preferred)
 - **Standard library**: Additional modules and functions
 - **FFI bridges**: Create bridge.yaml files for Rust crates
 - **Documentation**: Improve docs, add tutorials
-- **Examples**: Add example programs
+- **Examples**: Add example programs (organized in `examples/basic/`, `examples/ffi/`, `examples/benchmarks/`)
 - **Performance**: Optimize compilation or runtime
 - **Error messages**: Improve error reporting
 

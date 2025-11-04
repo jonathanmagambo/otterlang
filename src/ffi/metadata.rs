@@ -357,15 +357,57 @@ impl RustPath {
 #[derive(Clone, Debug, DeSerialize, DeDeserialize)]
 #[serde(tag = "kind")]
 pub enum PublicItem {
-    Function { sig: FnSig, path: RustPath, doc: Option<String> },
-    Method { impl_for: RustTypeRef, sig: FnSig, path: RustPath, doc: Option<String> },
-    AssocFunction { impl_for: RustTypeRef, sig: FnSig, path: RustPath, doc: Option<String> },
-    Const { name: String, ty: RustTypeRef, path: RustPath, doc: Option<String> },
-    Static { name: String, ty: RustTypeRef, mutable: bool, path: RustPath, doc: Option<String> },
-    Struct { name: String, path: RustPath, doc: Option<String> },
-    Enum { name: String, path: RustPath, doc: Option<String> },
-    TypeAlias { name: String, aliased: RustTypeRef, path: RustPath, doc: Option<String> },
-    Module { name: String, path: RustPath, doc: Option<String> },
+    Function {
+        sig: FnSig,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Method {
+        impl_for: RustTypeRef,
+        sig: FnSig,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    AssocFunction {
+        impl_for: RustTypeRef,
+        sig: FnSig,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Const {
+        name: String,
+        ty: RustTypeRef,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Static {
+        name: String,
+        ty: RustTypeRef,
+        mutable: bool,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Struct {
+        name: String,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Enum {
+        name: String,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    TypeAlias {
+        name: String,
+        aliased: RustTypeRef,
+        path: RustPath,
+        doc: Option<String>,
+    },
+    Module {
+        name: String,
+        path: RustPath,
+        doc: Option<String>,
+    },
 }
 
 /// Function signature (sync or async) with parameter and return types.
@@ -389,24 +431,47 @@ pub enum RustTypeRef {
     F64,
     Str,
     /// Fully-qualified nominal type
-    Path { path: RustPath },
+    Path {
+        path: RustPath,
+    },
     /// Reference types
-    Ref { mutable: bool, inner: Box<RustTypeRef> },
+    Ref {
+        mutable: bool,
+        inner: Box<RustTypeRef>,
+    },
     /// Owned container types
-    Vec { elem: Box<RustTypeRef> },
-    Slice { elem: Box<RustTypeRef> },
-    Array { elem: Box<RustTypeRef>, len: usize },
-    Tuple { elems: Vec<RustTypeRef> },
+    Vec {
+        elem: Box<RustTypeRef>,
+    },
+    Slice {
+        elem: Box<RustTypeRef>,
+    },
+    Array {
+        elem: Box<RustTypeRef>,
+        len: usize,
+    },
+    Tuple {
+        elems: Vec<RustTypeRef>,
+    },
     /// Option<T>
-    Option { inner: Box<RustTypeRef> },
+    Option {
+        inner: Box<RustTypeRef>,
+    },
     /// Result<T, E>
-    Result { ok: Box<RustTypeRef>, err: Box<RustTypeRef> },
+    Result {
+        ok: Box<RustTypeRef>,
+        err: Box<RustTypeRef>,
+    },
     /// Future<Output = T>
-    Future { output: Box<RustTypeRef> },
+    Future {
+        output: Box<RustTypeRef>,
+    },
     /// Opaque for types we cannot (or don't need to) structurally encode
     Opaque,
 }
 
 impl RustTypeRef {
-    pub fn is_unit(&self) -> bool { matches!(self, RustTypeRef::Unit) }
+    pub fn is_unit(&self) -> bool {
+        matches!(self, RustTypeRef::Unit)
+    }
 }

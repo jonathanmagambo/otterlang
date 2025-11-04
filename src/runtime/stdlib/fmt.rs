@@ -75,4 +75,3 @@ inventory::submit! {
         register: register_std_fmt_symbols,
     }
 }
-

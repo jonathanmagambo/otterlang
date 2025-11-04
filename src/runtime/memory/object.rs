@@ -78,4 +78,3 @@ impl ObjectHeader {
         self.weak_count.load(Ordering::SeqCst)
     }
 }
-

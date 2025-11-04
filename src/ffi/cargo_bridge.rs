@@ -8,8 +8,8 @@ use tracing::debug;
 use crate::cache::path::cache_root;
 
 use super::metadata::{BridgeMetadata, CrateSpec};
-use super::rustdoc_extractor::extract_crate_spec;
 use super::rust_stubgen::{RustStubGenerator, StubSource};
+use super::rustdoc_extractor::extract_crate_spec;
 use super::symbol_registry::BridgeSymbolRegistry;
 
 /// Describes the key paths generated for a bridge crate.
@@ -41,11 +41,11 @@ impl CargoBridge {
     pub fn ensure_bridge(&self, crate_name: &str) -> Result<BridgeArtifacts> {
         let metadata = self.registry.ensure_metadata(crate_name)?;
         let cache_hash = metadata.dependency.cache_hash();
-        
+
         // Use hash-based cache directory: <crate_name>-<hash>
         let cache_dir_name = format!("{}-{}", crate_name, cache_hash);
         let crate_root = self.root.join(&cache_dir_name);
-        
+
         // Check if library already exists in cache
         let package_name = format!("otterffi_{}", crate_name);
         let library_filename = libloading::library_filename(&package_name);
@@ -53,7 +53,7 @@ impl CargoBridge {
             .join("target")
             .join("release")
             .join(&library_filename);
-        
+
         if cached_library.exists() {
             debug!(
                 crate = %crate_name,
@@ -66,43 +66,54 @@ impl CargoBridge {
                 library_path: cached_library,
             });
         }
-        
+
         // Precompute transparent crate spec (rustdoc JSON) and synthesize auto functions
         // If extraction fails (e.g., needs nightly Rust), fall back to bridge.yaml gracefully
-        let spec: CrateSpec = extract_crate_spec(&metadata.dependency)
-            .unwrap_or_else(|e| {
-                debug!("rustdoc extraction failed for {}: {}, falling back to bridge.yaml", crate_name, e);
-                CrateSpec { name: crate_name.to_string(), version: metadata.dependency.version.clone(), items: Vec::new() }
-            });
+        let spec: CrateSpec = extract_crate_spec(&metadata.dependency).unwrap_or_else(|e| {
+            debug!(
+                "rustdoc extraction failed for {}: {}, falling back to bridge.yaml",
+                crate_name, e
+            );
+            CrateSpec {
+                name: crate_name.to_string(),
+                version: metadata.dependency.version.clone(),
+                items: Vec::new(),
+            }
+        });
         let generator = super::rust_stubgen::RustStubGenerator::new(
             metadata.crate_name.clone(),
             metadata.dependency.clone(),
         );
-        
+
         // Prioritize transparent extraction: if we got items from rustdoc, use those
         // bridge.yaml functions are only used as overrides/additions
         let functions = if !spec.items.is_empty() {
-            debug!("Extracted {} items from rustdoc for {}", spec.items.len(), crate_name);
+            debug!(
+                "Extracted {} items from rustdoc for {}",
+                spec.items.len(),
+                crate_name
+            );
             // Transparent extraction succeeded - use auto-generated functions
             generator.functions_from_crate_spec(&spec)
         } else {
             // Transparent extraction failed or returned empty - fall back to bridge.yaml
-            debug!("No items extracted from rustdoc for {}, using bridge.yaml functions", crate_name);
+            debug!(
+                "No items extracted from rustdoc for {}, using bridge.yaml functions",
+                crate_name
+            );
             Vec::new()
         };
-        
+
         // Merge in bridge.yaml functions (these can override or add to transparent ones)
         // Use a map to avoid duplicates by name
-        let mut function_map: std::collections::HashMap<String, _> = functions
-            .into_iter()
-            .map(|f| (f.name.clone(), f))
-            .collect();
-        
+        let mut function_map: std::collections::HashMap<String, _> =
+            functions.into_iter().map(|f| (f.name.clone(), f)).collect();
+
         for manual_func in metadata.functions.iter() {
             // bridge.yaml functions override transparent ones with same name
             function_map.insert(manual_func.name.clone(), manual_func.clone());
         }
-        
+
         let final_functions: Vec<_> = function_map.into_values().collect();
         self.write_bridge_with_functions(&metadata, &final_functions, &crate_root)?;
         let library_path = self

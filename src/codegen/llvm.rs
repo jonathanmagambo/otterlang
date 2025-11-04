@@ -9,21 +9,22 @@ use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::Module;
 use inkwell::passes::PassManager;
-use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target,
-};
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target};
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
-use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{
+    BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
+};
 use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
 
 use crate::ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
-use crate::ffi::{BridgeSymbolRegistry, CargoBridge, DynamicLibraryLoader, FunctionSpec, TypeSpec};
-use crate::runtime::ffi::register_dynamic_exports;
-use libloading::Library;
-use crate::runtime::ffi;
-use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType, SymbolRegistry};
 use crate::codegen::target::TargetTriple;
+use crate::ffi::{BridgeSymbolRegistry, CargoBridge, DynamicLibraryLoader, FunctionSpec, TypeSpec};
+use crate::runtime::ffi;
+use crate::runtime::ffi::register_dynamic_exports;
+use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType, SymbolRegistry};
+use crate::typecheck::TypeInfo;
+use libloading::Library;
 
 pub struct CodegenOptions {
     pub emit_ir: bool,
@@ -45,7 +46,7 @@ impl Default for CodegenOptions {
             enable_pgo: false,
             pgo_profile_file: None,
             inline_threshold: None, // Use LLVM default
-            target: None, // Use native target
+            target: None,           // Use native target
         }
     }
 }
@@ -81,6 +82,8 @@ enum OtterType {
     F64,
     Str,
     Opaque,
+    List,
+    Map,
 }
 
 impl From<FfiType> for OtterType {
@@ -93,6 +96,8 @@ impl From<FfiType> for OtterType {
             FfiType::F64 => OtterType::F64,
             FfiType::Str => OtterType::Str,
             FfiType::Opaque => OtterType::Opaque,
+            FfiType::List => OtterType::List,
+            FfiType::Map => OtterType::Map,
         }
     }
 }
@@ -159,6 +164,10 @@ impl<'ctx> FunctionContext<'ctx> {
     fn insert(&mut self, name: String, variable: Variable<'ctx>) {
         self.variables.insert(name, variable);
     }
+
+    fn remove(&mut self, name: &str) -> Option<Variable<'ctx>> {
+        self.variables.remove(name)
+    }
 }
 
 pub fn current_llvm_version() -> Option<String> {
@@ -167,6 +176,7 @@ pub fn current_llvm_version() -> Option<String> {
 
 pub fn build_executable(
     program: &Program,
+    expr_types: &HashMap<usize, TypeInfo>,
     output: &Path,
     options: &CodegenOptions,
 ) -> Result<BuildArtifact> {
@@ -175,7 +185,7 @@ pub fn build_executable(
     let builder = context.create_builder();
     let registry = ffi::bootstrap_stdlib();
     let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry);
+    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
 
     compiler.lower_program(program, true)?; // Require main for executables
     compiler
@@ -194,27 +204,36 @@ pub fn build_executable(
     // Get native target triple directly from LLVM
     let native_triple = inkwell::targets::TargetMachine::get_default_triple();
     let native_str = native_triple.to_string();
-    
+
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
     let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
         let after_darwin = &native_str[darwin_idx + 6..];
-        if after_darwin.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '.') {
+        if after_darwin
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_ascii_digit() || c == '.')
+        {
             // Version suffix found after "darwin", strip it
-            format!("arm64-apple-darwin")  // Use standard format for macOS ARM
+            format!("arm64-apple-darwin") // Use standard format for macOS ARM
         } else {
             native_str.clone()
         }
     } else {
         native_str.clone()
     };
-    
+
     // Create inkwell TargetTriple using triple without version suffix
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
-    let target = Target::from_triple(&llvm_triple)
-        .map_err(|e| anyhow!("failed to create target from triple {} (original: {}): {e}", triple_str, native_str))?;
+    let target = Target::from_triple(&llvm_triple).map_err(|e| {
+        anyhow!(
+            "failed to create target from triple {} (original: {}): {e}",
+            triple_str,
+            native_str
+        )
+    })?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
     let target_machine = target
@@ -232,7 +251,12 @@ pub fn build_executable(
         .module
         .set_data_layout(&target_machine.get_target_data().get_data_layout());
 
-    compiler.run_default_passes(options.opt_level, options.enable_pgo, options.pgo_profile_file.as_deref(), options.inline_threshold);
+    compiler.run_default_passes(
+        options.opt_level,
+        options.enable_pgo,
+        options.pgo_profile_file.as_deref(),
+        options.inline_threshold,
+    );
 
     let object_path = output.with_extension("o");
     target_machine
@@ -256,7 +280,7 @@ pub fn build_executable(
     let runtime_o = output.with_extension("runtime.o");
     let linker = runtime_triple.linker();
     let mut cc = Command::new(&linker);
-    
+
     // Add target-specific compiler flags
     if runtime_triple.is_wasm() {
         // For WebAssembly, use clang with target flag
@@ -271,11 +295,9 @@ pub fn build_executable(
             cc.arg("--target").arg(&native_str);
         }
     }
-    
-    cc.arg(&runtime_c)
-        .arg("-o")
-        .arg(&runtime_o);
-    
+
+    cc.arg(&runtime_c).arg("-o").arg(&runtime_o);
+
     let cc_status = cc.status().context("failed to compile runtime C file")?;
 
     if !cc_status.success() {
@@ -285,11 +307,12 @@ pub fn build_executable(
     // Link the object files together (target-specific)
     let linker = runtime_triple.linker();
     let mut cc = Command::new(&linker);
-    
+
     // Add target-specific linker flags
     if runtime_triple.is_wasm() {
         // WebAssembly linking
-        cc.arg("--target").arg(&native_str)
+        cc.arg("--target")
+            .arg(&native_str)
             .arg("--no-entry")
             .arg("--export-dynamic")
             .arg(&object_path)
@@ -302,7 +325,7 @@ pub fn build_executable(
         }
         cc.arg(&object_path).arg(&runtime_o).arg("-o").arg(output);
     }
-    
+
     // Apply target-specific linker flags
     for flag in runtime_triple.linker_flags() {
         cc.arg(&flag);
@@ -358,6 +381,7 @@ pub fn build_executable(
 /// Build a shared library (.so/.dylib) for JIT execution
 pub fn build_shared_library(
     program: &Program,
+    expr_types: &HashMap<usize, TypeInfo>,
     output: &Path,
     options: &CodegenOptions,
 ) -> Result<BuildArtifact> {
@@ -366,7 +390,7 @@ pub fn build_shared_library(
     let builder = context.create_builder();
     let registry = ffi::bootstrap_stdlib();
     let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry);
+    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
 
     compiler.lower_program(program, false)?; // Don't require main for shared libraries
     compiler
@@ -384,27 +408,36 @@ pub fn build_shared_library(
     // Get native target triple directly from LLVM
     let native_triple = inkwell::targets::TargetMachine::get_default_triple();
     let native_str = native_triple.to_string();
-    
+
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
     let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
         let after_darwin = &native_str[darwin_idx + 6..];
-        if after_darwin.chars().next().map_or(false, |c| c.is_ascii_digit() || c == '.') {
+        if after_darwin
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_ascii_digit() || c == '.')
+        {
             // Version suffix found after "darwin", strip it
-            format!("arm64-apple-darwin")  // Use standard format for macOS ARM
+            format!("arm64-apple-darwin") // Use standard format for macOS ARM
         } else {
             native_str.clone()
         }
     } else {
         native_str.clone()
     };
-    
+
     // Create inkwell TargetTriple using triple without version suffix
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
-    let target = Target::from_triple(&llvm_triple)
-        .map_err(|e| anyhow!("failed to create target from triple {} (original: {}): {e}", triple_str, native_str))?;
+    let target = Target::from_triple(&llvm_triple).map_err(|e| {
+        anyhow!(
+            "failed to create target from triple {} (original: {}): {e}",
+            triple_str,
+            native_str
+        )
+    })?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
     let target_machine = target
@@ -422,7 +455,12 @@ pub fn build_shared_library(
         .module
         .set_data_layout(&target_machine.get_target_data().get_data_layout());
 
-    compiler.run_default_passes(options.opt_level, options.enable_pgo, options.pgo_profile_file.as_deref(), options.inline_threshold);
+    compiler.run_default_passes(
+        options.opt_level,
+        options.enable_pgo,
+        options.pgo_profile_file.as_deref(),
+        options.inline_threshold,
+    );
 
     // Compile to object file with position-independent code
     let object_path = output.with_extension("o");
@@ -441,14 +479,13 @@ pub fn build_shared_library(
     let runtime_triple = TargetTriple::parse(&native_str)
         .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")));
     let runtime_c_content = runtime_triple.runtime_c_code();
-    fs::write(&runtime_c, runtime_c_content)
-        .context("failed to write runtime C file")?;
+    fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
 
     // Compile runtime C file (target-specific)
     let runtime_o = output.with_extension("runtime.o");
     let linker = runtime_triple.linker();
     let mut cc = Command::new(&linker);
-    
+
     // Add target-specific compiler flags
     if runtime_triple.is_wasm() {
         cc.arg("--target").arg(&native_str).arg("-c");
@@ -459,11 +496,9 @@ pub fn build_shared_library(
             cc.arg("--target").arg(&native_str);
         }
     }
-    
-    cc.arg(&runtime_c)
-        .arg("-o")
-        .arg(&runtime_o);
-    
+
+    cc.arg(&runtime_c).arg("-o").arg(&runtime_o);
+
     let cc_status = cc.status().context("failed to compile runtime C file")?;
 
     if !cc_status.success() {
@@ -490,9 +525,10 @@ pub fn build_shared_library(
     // Link as shared library (target-specific)
     let linker = runtime_triple.linker();
     let mut cc = Command::new(&linker);
-    
+
     if runtime_triple.is_wasm() {
-        cc.arg("--target").arg(&native_str)
+        cc.arg("--target")
+            .arg(&native_str)
             .arg("--no-entry")
             .arg("--export-dynamic")
             .arg("-o")
@@ -505,12 +541,12 @@ pub fn build_shared_library(
             .arg(&lib_path)
             .arg(&object_path)
             .arg(&runtime_o);
-        
+
         if options.target.is_some() {
             cc.arg("--target").arg(&native_str);
         }
     }
-    
+
     // Apply target-specific linker flags
     for flag in runtime_triple.linker_flags() {
         cc.arg(&flag);
@@ -585,7 +621,12 @@ fn prepare_rust_bridges(program: &Program, registry: &SymbolRegistry) -> Result<
         })?;
         // Register all exports directly from the library (transparent + manual entries)
         unsafe {
-            let lib = Library::new(&artifacts.library_path).with_context(|| format!("failed to open library {}", artifacts.library_path.display()))?;
+            let lib = Library::new(&artifacts.library_path).with_context(|| {
+                format!(
+                    "failed to open library {}",
+                    artifacts.library_path.display()
+                )
+            })?;
             register_dynamic_exports(&lib, registry)?;
         }
         // Also register planned functions to ensure symbol aliases are available immediately
@@ -708,7 +749,7 @@ fn alias_name(alias: &str, crate_name: &str, canonical: &str) -> String {
     }
 }
 
-struct Compiler<'ctx> {
+struct Compiler<'ctx, 'types> {
     context: &'ctx LlvmContext,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
@@ -718,14 +759,17 @@ struct Compiler<'ctx> {
     string_ptr_type: inkwell::types::PointerType<'ctx>,
     declared_functions: std::collections::HashMap<String, FunctionValue<'ctx>>,
     lambda_counter: std::sync::atomic::AtomicUsize,
+    function_defaults: HashMap<String, Vec<Option<Expr>>>,
+    expr_types: &'types HashMap<usize, TypeInfo>,
 }
 
-impl<'ctx> Compiler<'ctx> {
+impl<'ctx, 'types> Compiler<'ctx, 'types> {
     fn new(
         context: &'ctx LlvmContext,
         module: Module<'ctx>,
         builder: Builder<'ctx>,
         symbol_registry: &'static SymbolRegistry,
+        expr_types: &'types HashMap<usize, TypeInfo>,
     ) -> Self {
         let string_ptr_type = context.i8_type().ptr_type(AddressSpace::default());
 
@@ -738,6 +782,8 @@ impl<'ctx> Compiler<'ctx> {
             string_ptr_type,
             declared_functions: std::collections::HashMap::new(),
             lambda_counter: std::sync::atomic::AtomicUsize::new(0),
+            function_defaults: HashMap::new(),
+            expr_types,
         }
     }
 
@@ -751,6 +797,17 @@ impl<'ctx> Compiler<'ctx> {
                 _ => None,
             })
             .collect();
+
+        // Cache parameter defaults for user-defined functions
+        for function in &functions {
+            let defaults = function
+                .params
+                .iter()
+                .map(|param| param.default.clone())
+                .collect::<Vec<_>>();
+            self.function_defaults
+                .insert(function.name.clone(), defaults);
+        }
 
         if functions.is_empty() {
             bail!("program contains no functions");
@@ -919,6 +976,8 @@ impl<'ctx> Compiler<'ctx> {
             "float" => Ok(OtterType::F64),
             "bool" => Ok(OtterType::Bool),
             "str" => Ok(OtterType::Str),
+            "list" | "List" => Ok(OtterType::List),
+            "dict" | "Dict" => Ok(OtterType::Map),
             _ => bail!("unknown type: {}", name),
         }
     }
@@ -936,6 +995,8 @@ impl<'ctx> Compiler<'ctx> {
                         // In a full implementation, we'd need proper generic type handling
                         Ok(OtterType::I64)
                     }
+                    "List" | "list" => Ok(OtterType::List),
+                    "Dict" | "dict" => Ok(OtterType::Map),
                     _ => bail!("unknown generic type: {}", base),
                 }
             }
@@ -954,7 +1015,11 @@ impl<'ctx> Compiler<'ctx> {
                 self.eval_expr(expr, ctx)?;
                 Ok(())
             }
-            Statement::Let { name, expr, public: _ } => {
+            Statement::Let {
+                name,
+                expr,
+                public: _,
+            } => {
                 let evaluated = self.eval_expr(expr, ctx)?;
                 if evaluated.ty == OtterType::Unit {
                     bail!("cannot declare variable `{name}` with unit value");
@@ -1174,6 +1239,7 @@ impl<'ctx> Compiler<'ctx> {
                 }
                 Ok(())
             }
+            Statement::Pass => Ok(()),
             Statement::Function(_) => {
                 // Functions are already lowered in lower_program
                 Ok(())
@@ -1196,27 +1262,30 @@ impl<'ctx> Compiler<'ctx> {
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
                     let evaluated = self.eval_expr(expr, ctx)?;
-                    
+
                     // Get the function's return type
-                    let function_ret_type = if let Some(ret_ty) = &_function.get_type().get_return_type() {
-                        if ret_ty.is_float_type() {
-                            OtterType::F64
-                        } else if ret_ty.is_int_type() {
-                            if ret_ty.into_int_type().get_bit_width() == 64 {
-                                OtterType::I64
+                    let function_ret_type =
+                        if let Some(ret_ty) = &_function.get_type().get_return_type() {
+                            if ret_ty.is_float_type() {
+                                OtterType::F64
+                            } else if ret_ty.is_int_type() {
+                                if ret_ty.into_int_type().get_bit_width() == 64 {
+                                    OtterType::I64
+                                } else {
+                                    OtterType::I32
+                                }
                             } else {
-                                OtterType::I32
+                                evaluated.ty
                             }
                         } else {
                             evaluated.ty
-                        }
-                    } else {
-                        evaluated.ty
-                    };
-                    
+                        };
+
                     // Cast the return value to match the function's return type if needed
                     let return_value = if evaluated.ty != function_ret_type {
-                        let value = evaluated.value.ok_or_else(|| anyhow!("return expression has no value"))?;
+                        let value = evaluated
+                            .value
+                            .ok_or_else(|| anyhow!("return expression has no value"))?;
                         match (function_ret_type, evaluated.ty) {
                             (OtterType::I32, OtterType::F64) => {
                                 let float_val = value.into_float_value();
@@ -1266,9 +1335,11 @@ impl<'ctx> Compiler<'ctx> {
                             _ => value,
                         }
                     } else {
-                        evaluated.value.ok_or_else(|| anyhow!("return expression has no value"))?
+                        evaluated
+                            .value
+                            .ok_or_else(|| anyhow!("return expression has no value"))?
                     };
-                    
+
                     self.builder.build_return(Some(&return_value));
                 } else {
                     self.builder.build_return(None);
@@ -1286,7 +1357,7 @@ impl<'ctx> Compiler<'ctx> {
                     let mut eval = evaluated;
                     match (variable.ty, eval.ty) {
                         // Same type - no conversion needed
-                        (t1, t2) if t1 == t2 => {},
+                        (t1, t2) if t1 == t2 => {}
                         // I32 to I64 extension
                         (OtterType::I64, OtterType::I32) => {
                             let int_val = eval
@@ -1352,6 +1423,99 @@ impl<'ctx> Compiler<'ctx> {
                 // Type aliases are handled at the module level, not in function bodies
                 Ok(())
             }
+            Statement::Try {
+                body,
+                handlers,
+                else_block,
+                finally_block,
+            } => {
+                // For now, implement a basic version that executes the try body
+                // and skips handlers. Full implementation would require:
+                // 1. Creating basic blocks for each handler
+                // 2. Error checking branches
+                // 3. Proper control flow with finally cleanup
+
+                // Push error context
+                self.call_runtime_function("otter_error_push_context", &[], _function, ctx)?;
+
+                // Execute try body statements
+                for stmt in &body.statements {
+                    self.lower_statement(stmt, _function, ctx)?;
+                }
+
+                // Check if error occurred
+                let has_error = self.call_runtime_function("otter_error_has_error", &[], _function, ctx)?;
+                let has_error_bool = self.builder.build_int_truncate(
+                    has_error.value.expect("Runtime function should return a value").into_int_value(),
+                    self.context.bool_type(),
+                    "has_error_bool",
+                );
+
+                // Create basic blocks for different paths
+                let then_block = self.context.append_basic_block(_function, "no_error");
+                let else_block_bb = self.context.append_basic_block(_function, "error");
+                let continue_block = self.context.append_basic_block(_function, "continue");
+
+                self.builder.build_conditional_branch(has_error_bool, else_block_bb, then_block);
+
+                // No error path: execute else block if present, then finally
+                self.builder.position_at_end(then_block);
+                if let Some(else_block) = else_block {
+                    for stmt in &else_block.statements {
+                        self.lower_statement(stmt, _function, ctx)?;
+                    }
+                }
+                if let Some(finally_block) = finally_block {
+                    for stmt in &finally_block.statements {
+                        self.lower_statement(stmt, _function, ctx)?;
+                    }
+                }
+                self.builder.build_unconditional_branch(continue_block);
+
+                // Error path: check handlers in order
+                self.builder.position_at_end(else_block_bb);
+
+                // For now, since we only have one error type, execute the first handler
+                // TODO: Implement proper type-based handler matching
+                if let Some(first_handler) = handlers.first() {
+                    // Execute handler body
+                    for stmt in &first_handler.body.statements {
+                        self.lower_statement(stmt, _function, ctx)?;
+                    }
+                }
+
+                // Execute finally block
+                if let Some(finally_block) = finally_block {
+                    for stmt in &finally_block.statements {
+                        self.lower_statement(stmt, _function, ctx)?;
+                    }
+                }
+                self.builder.build_unconditional_branch(continue_block);
+
+                // Continue after try statement
+                self.builder.position_at_end(continue_block);
+
+                // Pop error context
+                self.call_runtime_function("otter_error_pop_context", &[], _function, ctx)?;
+
+                Ok(())
+            }
+            Statement::Raise(expr) => {
+                match expr {
+                    Some(expr) => {
+                        // For now, just evaluate the expression and call raise with a placeholder message
+                        // TODO: Properly convert expression to error
+                        let _ = self.eval_expr(expr, ctx)?;
+                        self.call_runtime_function_with_string("otter_error_raise", "Exception raised", _function, ctx)?;
+                    }
+                    None => {
+                        // Bare raise - check if we're in an error context
+                        // For now, just call rethrow
+                        self.call_runtime_function("otter_error_rethrow", &[], _function, ctx)?;
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -1376,9 +1540,17 @@ impl<'ctx> Compiler<'ctx> {
             Expr::Member { object, field } => self.eval_member_access(object, field, ctx),
             Expr::Await(expr) => self.lower_await(expr, ctx),
             Expr::Spawn(expr) => self.lower_spawn(expr, ctx),
-            Expr::Lambda { params: _, ret_ty: _, body } => {
+            Expr::Lambda {
+                params: _,
+                ret_ty: _,
+                body,
+            } => {
                 // Compile lambda to a separate function
-                let lambda_name = format!("lambda_{}", self.lambda_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+                let lambda_name = format!(
+                    "lambda_{}",
+                    self.lambda_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                );
 
                 // For task callbacks, lambdas take no parameters and return void
                 let llvm_param_types: Vec<inkwell::types::BasicMetadataTypeEnum> = vec![];
@@ -1418,11 +1590,9 @@ impl<'ctx> Compiler<'ctx> {
 
                 // Return the function pointer as an i64 (cast the function pointer)
                 let func_ptr = lambda_function.as_global_value().as_pointer_value();
-                let int_ptr = self.builder.build_ptr_to_int(
-                    func_ptr,
-                    self.context.i64_type(),
-                    "lambda_ptr",
-                );
+                let int_ptr =
+                    self.builder
+                        .build_ptr_to_int(func_ptr, self.context.i64_type(), "lambda_ptr");
 
                 Ok(EvaluatedValue {
                     ty: OtterType::I64, // Function pointers are i64
@@ -1433,13 +1603,62 @@ impl<'ctx> Compiler<'ctx> {
                 // Match expressions need pattern matching implementation
                 bail!("match expressions are not yet implemented in codegen")
             }
-            Expr::Array(_) => {
-                // Array literals need array implementation
-                bail!("array literals are not yet implemented in codegen")
+            Expr::Array(elements) => {
+                let list_new = self.declare_symbol_function("list.new")?;
+                let list_call = self.builder.build_call(list_new, &[], "list_new_handle");
+                let handle_value = list_call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.new did not return a handle"))?
+                    .into_int_value();
+
+                for element_expr in elements {
+                    let element_value = self.eval_expr(element_expr, ctx)?;
+                    self.append_list_element(handle_value, element_value)?;
+                }
+
+                Ok(EvaluatedValue::with_value(
+                    handle_value.into(),
+                    OtterType::List,
+                ))
             }
-            Expr::Dict(_) => {
-                // Dictionary literals need dictionary implementation
-                bail!("dictionary literals are not yet implemented in codegen")
+            Expr::Dict(entries) => {
+                let map_new = self.declare_symbol_function("map.new")?;
+                let map_call = self.builder.build_call(map_new, &[], "map_new_handle");
+                let handle_value = map_call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("map.new did not return a handle"))?
+                    .into_int_value();
+
+                for (key_expr, value_expr) in entries.iter() {
+                    let key_value = self.eval_expr(key_expr, ctx)?;
+                    let value_value = self.eval_expr(value_expr, ctx)?;
+                    self.set_map_entry(handle_value, key_value, value_value)?;
+                }
+
+                Ok(EvaluatedValue::with_value(
+                    handle_value.into(),
+                    OtterType::Map,
+                ))
+            }
+            Expr::ListComprehension {
+                element,
+                var,
+                iterable,
+                condition,
+            } => self.lower_list_comprehension(element, var, iterable, condition, ctx),
+            Expr::DictComprehension {
+                key,
+                value,
+                var,
+                iterable,
+                condition,
+            } => self.lower_dict_comprehension(key, value, var, iterable, condition, ctx),
+            Expr::Struct { name, fields } => {
+                // Struct instantiation - TODO: Full implementation requires struct type support
+                // For now, return an opaque handle (struct support is experimental)
+                bail!("struct instantiation is not yet fully implemented in codegen. Struct: {}, fields: {:?}", name, fields.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>())
             }
         }
     }
@@ -1582,11 +1801,9 @@ impl<'ctx> Compiler<'ctx> {
                 .value
                 .ok_or_else(|| anyhow!("missing value"))?
                 .into_int_value();
-            let ext_val = self.builder.build_int_s_extend(
-                int_val,
-                self.context.i64_type(),
-                "i32toi64",
-            );
+            let ext_val =
+                self.builder
+                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64");
             left_value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
         }
         if right_value.ty == OtterType::I32 {
@@ -1594,11 +1811,9 @@ impl<'ctx> Compiler<'ctx> {
                 .value
                 .ok_or_else(|| anyhow!("missing value"))?
                 .into_int_value();
-            let ext_val = self.builder.build_int_s_extend(
-                int_val,
-                self.context.i64_type(),
-                "i32toi64",
-            );
+            let ext_val =
+                self.builder
+                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64");
             right_value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
         }
 
@@ -1636,6 +1851,12 @@ impl<'ctx> Compiler<'ctx> {
         }
 
         // Support both integer and float operations
+        let op = match op {
+            BinaryOp::Is => BinaryOp::Eq,
+            BinaryOp::IsNot => BinaryOp::Ne,
+            other => *other,
+        };
+
         match left_value.ty {
             OtterType::I64 => {
                 let lhs = left_value
@@ -1709,6 +1930,9 @@ impl<'ctx> Compiler<'ctx> {
                         );
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
+                    BinaryOp::And | BinaryOp::Or => {
+                        bail!("logical operations require boolean operands, got integers")
+                    }
                     _ => bail!("unsupported binary operation for integers: {:?}", op),
                 };
                 return Ok(EvaluatedValue::with_value(result, OtterType::I64));
@@ -1726,105 +1950,106 @@ impl<'ctx> Compiler<'ctx> {
                     .into_float_value();
 
                 let result = match op {
-            BinaryOp::Add => self.builder.build_float_add(lhs, rhs, "addtmp").into(),
-            BinaryOp::Sub => self.builder.build_float_sub(lhs, rhs, "subtmp").into(),
-            BinaryOp::Mul => self.builder.build_float_mul(lhs, rhs, "multmp").into(),
-            BinaryOp::Div => self.builder.build_float_div(lhs, rhs, "divtmp").into(),
-            BinaryOp::Mod => self.builder.build_float_rem(lhs, rhs, "modtmp").into(),
-            BinaryOp::Eq => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::OEQ,
-                    lhs,
-                    rhs,
-                    "eqtmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::Ne => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::ONE,
-                    lhs,
-                    rhs,
-                    "neqtmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::Lt => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::OLT,
-                    lhs,
-                    rhs,
-                    "lttmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::Gt => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::OGT,
-                    lhs,
-                    rhs,
-                    "gttmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::LtEq => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::OLE,
-                    lhs,
-                    rhs,
-                    "letmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::GtEq => {
-                let cmp = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::OGE,
-                    lhs,
-                    rhs,
-                    "getmp",
-                );
-                return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
-            }
-            BinaryOp::And => {
-                // Convert float to bool (non-zero = true)
-                let lhs_bool = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::ONE,
-                    lhs,
-                    self.context.f64_type().const_float(0.0),
-                    "lhs_bool",
-                );
-                let rhs_bool = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::ONE,
-                    rhs,
-                    self.context.f64_type().const_float(0.0),
-                    "rhs_bool",
-                );
-                let and_result = self.builder.build_and(lhs_bool, rhs_bool, "and_result");
-                return Ok(EvaluatedValue::with_value(
-                    and_result.into(),
-                    OtterType::Bool,
-                ));
-            }
-            BinaryOp::Or => {
-                // Convert float to bool (non-zero = true)
-                let lhs_bool = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::ONE,
-                    lhs,
-                    self.context.f64_type().const_float(0.0),
-                    "lhs_bool",
-                );
-                let rhs_bool = self.builder.build_float_compare(
-                    inkwell::FloatPredicate::ONE,
-                    rhs,
-                    self.context.f64_type().const_float(0.0),
-                    "rhs_bool",
-                );
-                let or_result = self.builder.build_or(lhs_bool, rhs_bool, "or_result");
-                return Ok(EvaluatedValue::with_value(
-                    or_result.into(),
-                    OtterType::Bool,
-                ));
-            }
+                    BinaryOp::Add => self.builder.build_float_add(lhs, rhs, "addtmp").into(),
+                    BinaryOp::Sub => self.builder.build_float_sub(lhs, rhs, "subtmp").into(),
+                    BinaryOp::Mul => self.builder.build_float_mul(lhs, rhs, "multmp").into(),
+                    BinaryOp::Div => self.builder.build_float_div(lhs, rhs, "divtmp").into(),
+                    BinaryOp::Mod => self.builder.build_float_rem(lhs, rhs, "modtmp").into(),
+                    BinaryOp::Eq => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::OEQ,
+                            lhs,
+                            rhs,
+                            "eqtmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::Ne => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::ONE,
+                            lhs,
+                            rhs,
+                            "neqtmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::Lt => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::OLT,
+                            lhs,
+                            rhs,
+                            "lttmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::Gt => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::OGT,
+                            lhs,
+                            rhs,
+                            "gttmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::LtEq => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::OLE,
+                            lhs,
+                            rhs,
+                            "letmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::GtEq => {
+                        let cmp = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::OGE,
+                            lhs,
+                            rhs,
+                            "getmp",
+                        );
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::And => {
+                        // Convert float to bool (non-zero = true)
+                        let lhs_bool = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::ONE,
+                            lhs,
+                            self.context.f64_type().const_float(0.0),
+                            "lhs_bool",
+                        );
+                        let rhs_bool = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::ONE,
+                            rhs,
+                            self.context.f64_type().const_float(0.0),
+                            "rhs_bool",
+                        );
+                        let and_result = self.builder.build_and(lhs_bool, rhs_bool, "and_result");
+                        return Ok(EvaluatedValue::with_value(
+                            and_result.into(),
+                            OtterType::Bool,
+                        ));
+                    }
+                    BinaryOp::Or => {
+                        // Convert float to bool (non-zero = true)
+                        let lhs_bool = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::ONE,
+                            lhs,
+                            self.context.f64_type().const_float(0.0),
+                            "lhs_bool",
+                        );
+                        let rhs_bool = self.builder.build_float_compare(
+                            inkwell::FloatPredicate::ONE,
+                            rhs,
+                            self.context.f64_type().const_float(0.0),
+                            "rhs_bool",
+                        );
+                        let or_result = self.builder.build_or(lhs_bool, rhs_bool, "or_result");
+                        return Ok(EvaluatedValue::with_value(
+                            or_result.into(),
+                            OtterType::Bool,
+                        ));
+                    }
+                    _ => bail!("unsupported binary operation for floats: {:?}", op),
                 };
                 return Ok(EvaluatedValue::with_value(result, OtterType::F64));
             }
@@ -1951,7 +2176,7 @@ impl<'ctx> Compiler<'ctx> {
                 let bool_val = self.context.bool_type().const_int(*value as u64, false);
                 Ok(EvaluatedValue::with_value(bool_val.into(), OtterType::Bool))
             }
-            Literal::Unit => {
+            Literal::None | Literal::Unit => {
                 // Unit type has no value
                 Ok(EvaluatedValue {
                     ty: OtterType::Unit,
@@ -1967,32 +2192,41 @@ impl<'ctx> Compiler<'ctx> {
         args: &[Expr],
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
-        let symbol_name = match callee {
-            Expr::Identifier(name) => Some(name.clone()),
+        let (symbol_name, actual_args) = match callee {
+            Expr::Identifier(name) => (Some(name.clone()), args.to_vec()),
             Expr::Member { object, field } => {
+                // Check if this is a method call (obj.method()) vs module function (module.func())
                 if let Expr::Identifier(module) = object.as_ref() {
-                    Some(format!("{module}.{field}"))
+                    // Module function call
+                    (Some(format!("{module}.{field}")), args.to_vec())
                 } else {
-                    None
+                    // Method call: obj.method(args) - pass obj as first argument (self)
+                    let obj_expr = object.clone();
+                    let mut method_args = vec![*obj_expr];
+                    method_args.extend(args.iter().cloned());
+                    // For now, try to construct method name from object type
+                    // This will be enhanced when we have better type information
+                    // Try common patterns: if obj is a struct instance, use struct name
+                    (Some(format!("Struct.{}", field)), method_args)
                 }
             }
-            _ => None,
+            _ => (None, args.to_vec()),
         };
 
         if let Some(symbol_name) = symbol_name {
             if let Some(symbol) = self.symbol_registry.resolve(&symbol_name) {
-                if symbol.signature.params.len() != args.len() {
+                if symbol.signature.params.len() != actual_args.len() {
                     bail!(
                         "function `{symbol_name}` expected {} arguments but got {}",
                         symbol.signature.params.len(),
-                        args.len()
+                        actual_args.len()
                     );
                 }
 
                 let function = self.declare_symbol_function(&symbol_name)?;
-                let mut lowered_args = Vec::with_capacity(args.len());
+                let mut lowered_args = Vec::with_capacity(actual_args.len());
 
-                for (expr, expected) in args.iter().zip(symbol.signature.params.iter()) {
+                for (expr, expected) in actual_args.iter().zip(symbol.signature.params.iter()) {
                     let mut value = self.eval_expr(expr, ctx)?;
                     let expected_ty: OtterType = expected.clone().into();
                     if value.ty != expected_ty {
@@ -2036,8 +2270,7 @@ impl<'ctx> Compiler<'ctx> {
                                     self.context.i64_type(),
                                     "coerce_i32_to_i64",
                                 );
-                                value =
-                                    EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
+                                value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
                             }
                             (OtterType::Opaque, OtterType::I64) => {
                                 // I64 can be used as opaque (e.g., handles)
@@ -2070,8 +2303,7 @@ impl<'ctx> Compiler<'ctx> {
                                     self.context.i64_type(),
                                     "coerce_f64_to_i64",
                                 );
-                                value =
-                                    EvaluatedValue::with_value(int_val.into(), OtterType::I64);
+                                value = EvaluatedValue::with_value(int_val.into(), OtterType::I64);
                             }
                             (OtterType::I32, OtterType::F64) => {
                                 // F64 to I32 conversion (truncate)
@@ -2085,8 +2317,7 @@ impl<'ctx> Compiler<'ctx> {
                                     self.context.i32_type(),
                                     "coerce_f64_to_i32",
                                 );
-                                value =
-                                    EvaluatedValue::with_value(int_val.into(), OtterType::I32);
+                                value = EvaluatedValue::with_value(int_val.into(), OtterType::I32);
                             }
                             (OtterType::Opaque, OtterType::F64) => {
                                 // F64 to Opaque (truncate to I64 first)
@@ -2176,35 +2407,36 @@ impl<'ctx> Compiler<'ctx> {
                     // First call spawn(...)
                     let spawn_val = self.eval_call(&Expr::Identifier(spawn_name), args, ctx)?;
                     // Then call await(handle)
-                    return self.eval_call(
-                        &Expr::Identifier(await_name),
-                        &[Expr::Literal(crate::ast::nodes::Literal::Number(
-                            crate::ast::nodes::NumberLiteral::new(0.0, true),
-                        ))],
-                        ctx,
-                    )
-                    .and_then(|_| {
-                        // Above hack won't work: build call requires expression nodes.
-                        // Instead, directly build call using lowered value as metadata.
-                        let await_symbol = self.symbol_registry
-                            .resolve(&format!("{}_await", base))
-                            .ok_or_else(|| anyhow!("unresolved await symbol"))?;
-                        let await_fn = self.declare_symbol_function(&format!("{}_await", base))?;
-                        let arg = self.value_to_metadata(&spawn_val)?;
-                        let call = self
-                            .builder
-                            .build_call(await_fn, &[arg], "await_call");
-                        let ret_ty: OtterType = await_symbol.signature.result.into();
-                        let value = match ret_ty {
-                            OtterType::Unit => None,
-                            _ => Some(
-                                call.try_as_basic_value()
-                                    .left()
-                                    .ok_or_else(|| anyhow!("await returned no value"))?,
-                            ),
-                        };
-                        Ok(EvaluatedValue { ty: ret_ty, value })
-                    });
+                    return self
+                        .eval_call(
+                            &Expr::Identifier(await_name),
+                            &[Expr::Literal(crate::ast::nodes::Literal::Number(
+                                crate::ast::nodes::NumberLiteral::new(0.0, true),
+                            ))],
+                            ctx,
+                        )
+                        .and_then(|_| {
+                            // Above hack won't work: build call requires expression nodes.
+                            // Instead, directly build call using lowered value as metadata.
+                            let await_symbol = self
+                                .symbol_registry
+                                .resolve(&format!("{}_await", base))
+                                .ok_or_else(|| anyhow!("unresolved await symbol"))?;
+                            let await_fn =
+                                self.declare_symbol_function(&format!("{}_await", base))?;
+                            let arg = self.value_to_metadata(&spawn_val)?;
+                            let call = self.builder.build_call(await_fn, &[arg], "await_call");
+                            let ret_ty: OtterType = await_symbol.signature.result.into();
+                            let value = match ret_ty {
+                                OtterType::Unit => None,
+                                _ => Some(
+                                    call.try_as_basic_value()
+                                        .left()
+                                        .ok_or_else(|| anyhow!("await returned no value"))?,
+                                ),
+                            };
+                            Ok(EvaluatedValue { ty: ret_ty, value })
+                        });
                 }
             }
         }
@@ -2236,8 +2468,41 @@ impl<'ctx> Compiler<'ctx> {
             let fn_type = function.get_type();
             let param_types = fn_type.get_param_types();
 
-            let mut lowered_args = Vec::with_capacity(args.len());
-            for (i, arg_expr) in args.iter().enumerate() {
+            let mut arg_exprs: Vec<Expr> = args.to_vec();
+
+            if let Some(defaults) = self.function_defaults.get(name) {
+                let total_params = defaults.len();
+                if arg_exprs.len() > total_params {
+                    bail!(
+                        "function `{}` expects at most {} arguments, got {}",
+                        name,
+                        total_params,
+                        arg_exprs.len()
+                    );
+                }
+
+                if arg_exprs.len() < total_params {
+                    for (idx, default_expr) in defaults.iter().enumerate().skip(arg_exprs.len()) {
+                        if let Some(expr) = default_expr {
+                            arg_exprs.push(expr.clone());
+                        } else {
+                            bail!("missing argument {} for function `{}`", idx + 1, name);
+                        }
+                    }
+                }
+            }
+
+            if arg_exprs.len() != param_types.len() {
+                bail!(
+                    "function `{}` expects {} arguments, got {}",
+                    name,
+                    param_types.len(),
+                    arg_exprs.len()
+                );
+            }
+
+            let mut lowered_args = Vec::with_capacity(arg_exprs.len());
+            for (i, arg_expr) in arg_exprs.iter().enumerate() {
                 let mut value = self.eval_expr(arg_expr, ctx)?;
 
                 if i < param_types.len() {
@@ -2310,6 +2575,7 @@ impl<'ctx> Compiler<'ctx> {
             OtterType::F64 => self.context.f64_type().into(),
             OtterType::Str => self.string_ptr_type.into(),
             OtterType::Opaque => self.context.i64_type().into(),
+            OtterType::List | OtterType::Map => self.context.i64_type().into(),
         };
         Ok(ty)
     }
@@ -2323,6 +2589,655 @@ impl<'ctx> Compiler<'ctx> {
             .clone()
             .ok_or_else(|| anyhow!("expected value for call argument"))?;
         Ok(basic.into())
+    }
+
+    fn append_list_element(
+        &mut self,
+        handle: IntValue<'ctx>,
+        element: EvaluatedValue<'ctx>,
+    ) -> Result<()> {
+        match (element.ty, element.value) {
+            (OtterType::Str, Some(val)) => {
+                let append_fn = self.declare_symbol_function("append<list,string>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), val.into()], "");
+            }
+            (OtterType::F64, Some(val)) => {
+                let append_fn = self.declare_symbol_function("append<list,float>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), val.into()], "");
+            }
+            (OtterType::I64, Some(val)) => {
+                let int_val = val.into_int_value();
+                let append_fn = self.declare_symbol_function("append<list,int>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), int_val.into()], "");
+            }
+            (OtterType::I32, Some(val)) => {
+                let int_val = val.into_int_value();
+                let extended =
+                    self.builder
+                        .build_int_s_extend(int_val, self.context.i64_type(), "i32_to_i64");
+                let append_fn = self.declare_symbol_function("append<list,int>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), extended.into()], "");
+            }
+            (OtterType::Bool, Some(val)) => {
+                let bool_val = val.into_int_value();
+                let append_fn = self.declare_symbol_function("append<list,bool>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), bool_val.into()], "");
+            }
+            (OtterType::List, Some(val)) => {
+                let list_handle = val.into_int_value();
+                let append_fn = self.declare_symbol_function("append<list,list>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), list_handle.into()], "");
+            }
+            (OtterType::Map, Some(val)) => {
+                let map_handle = val.into_int_value();
+                let append_fn = self.declare_symbol_function("append<list,map>")?;
+                self.builder
+                    .build_call(append_fn, &[handle.into(), map_handle.into()], "");
+            }
+            (ty, _) => {
+                bail!("unsupported list element type: {:?}", ty);
+            }
+        }
+        Ok(())
+    }
+
+    fn set_map_entry(
+        &mut self,
+        handle: IntValue<'ctx>,
+        key: EvaluatedValue<'ctx>,
+        value: EvaluatedValue<'ctx>,
+    ) -> Result<()> {
+        let key_value = match (key.ty, key.value) {
+            (OtterType::Str, Some(val)) => val,
+            (ty, _) => bail!("unsupported dictionary key type: {:?}", ty),
+        };
+        let key_arg: BasicMetadataValueEnum<'ctx> = key_value.into();
+
+        match (value.ty, value.value) {
+            (OtterType::Str, Some(val)) => {
+                let set_fn = self.declare_symbol_function("map.set")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, val.into()], "");
+            }
+            (OtterType::F64, Some(val)) => {
+                let set_fn = self.declare_symbol_function("set<map,float>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, val.into()], "");
+            }
+            (OtterType::I64, Some(val)) => {
+                let int_val = val.into_int_value();
+                let set_fn = self.declare_symbol_function("set<map,int>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, int_val.into()], "");
+            }
+            (OtterType::I32, Some(val)) => {
+                let int_val = val.into_int_value();
+                let extended =
+                    self.builder
+                        .build_int_s_extend(int_val, self.context.i64_type(), "i32_to_i64");
+                let set_fn = self.declare_symbol_function("set<map,int>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, extended.into()], "");
+            }
+            (OtterType::Bool, Some(val)) => {
+                let bool_val = val.into_int_value();
+                let set_fn = self.declare_symbol_function("set<map,bool>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, bool_val.into()], "");
+            }
+            (OtterType::List, Some(val)) => {
+                let list_handle = val.into_int_value();
+                let set_fn = self.declare_symbol_function("set<map,list>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, list_handle.into()], "");
+            }
+            (OtterType::Map, Some(val)) => {
+                let map_handle = val.into_int_value();
+                let set_fn = self.declare_symbol_function("set<map,map>")?;
+                self.builder
+                    .build_call(set_fn, &[handle.into(), key_arg, map_handle.into()], "");
+            }
+            (ty, _) => bail!("unsupported dictionary value type: {:?}", ty),
+        }
+        Ok(())
+    }
+
+    fn expr_type<'a>(&'a self, expr: &Expr) -> Option<&'types TypeInfo> {
+        let id = expr as *const Expr as usize;
+        self.expr_types.get(&id)
+    }
+
+    fn otter_type_from_typeinfo(&self, ty: &TypeInfo) -> OtterType {
+        match ty {
+            TypeInfo::Unit => OtterType::Opaque,
+            TypeInfo::Bool => OtterType::Bool,
+            TypeInfo::I32 | TypeInfo::I64 => OtterType::I64,
+            TypeInfo::F64 => OtterType::F64,
+            TypeInfo::Str => OtterType::Str,
+            TypeInfo::List(_) => OtterType::List,
+            TypeInfo::Dict { .. } => OtterType::Map,
+            TypeInfo::Unknown => OtterType::Str,
+            _ => OtterType::Opaque,
+        }
+    }
+
+    fn load_list_element(
+        &mut self,
+        element_ty: &TypeInfo,
+        handle: IntValue<'ctx>,
+        index: IntValue<'ctx>,
+    ) -> Result<EvaluatedValue<'ctx>> {
+        match element_ty {
+            TypeInfo::Bool => {
+                let getter = self.declare_symbol_function("list.get_bool")?;
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_bool",
+                );
+                let raw = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get_bool did not return a value"))?
+                    .into_int_value();
+                let bool_val = if raw.get_type().get_bit_width() == 1 {
+                    raw
+                } else {
+                    let zero = raw.get_type().const_int(0, false);
+                    self.builder.build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        raw,
+                        zero,
+                        "bool_cast",
+                    )
+                };
+                Ok(EvaluatedValue::with_value(bool_val.into(), OtterType::Bool))
+            }
+            TypeInfo::F64 => {
+                let getter = self.declare_symbol_function("list.get_float")?;
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_float",
+                );
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get_float did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::F64))
+            }
+            TypeInfo::I32 | TypeInfo::I64 => {
+                let getter = self.declare_symbol_function("list.get_int")?;
+                let call =
+                    self.builder
+                        .build_call(getter, &[handle.into(), index.into()], "list_get_int");
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get_int did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::I64))
+            }
+            TypeInfo::Str => {
+                let getter = self.declare_symbol_function("list.get")?;
+                let call =
+                    self.builder
+                        .build_call(getter, &[handle.into(), index.into()], "list_get_str");
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::Str))
+            }
+            TypeInfo::List(_) => {
+                let getter = self.declare_symbol_function("list.get_list")?;
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_list",
+                );
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get_list did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::List))
+            }
+            TypeInfo::Dict { .. } => {
+                let getter = self.declare_symbol_function("list.get_map")?;
+                let call =
+                    self.builder
+                        .build_call(getter, &[handle.into(), index.into()], "list_get_map");
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get_map did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::Map))
+            }
+            TypeInfo::Unknown | TypeInfo::Generic { .. } | TypeInfo::Struct { .. } => {
+                let getter = self.declare_symbol_function("list.get")?;
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_unknown",
+                );
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::Str))
+            }
+            TypeInfo::Unit => Ok(EvaluatedValue {
+                ty: OtterType::Unit,
+                value: None,
+            }),
+            _other => {
+                let getter = self.declare_symbol_function("list.get")?;
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_other",
+                );
+                let value = call
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| anyhow!("list.get did not return a value"))?;
+                Ok(EvaluatedValue::with_value(value, OtterType::Str))
+            }
+        }
+    }
+
+    fn to_bool_value(&mut self, value: EvaluatedValue<'ctx>) -> Result<IntValue<'ctx>> {
+        match (value.ty, value.value) {
+            (OtterType::Bool, Some(val)) => {
+                let raw = val.into_int_value();
+                if raw.get_type().get_bit_width() == 1 {
+                    Ok(raw)
+                } else {
+                    let zero = raw.get_type().const_int(0, false);
+                    Ok(self.builder.build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        raw,
+                        zero,
+                        "bool_cast",
+                    ))
+                }
+            }
+            (OtterType::I64, Some(val)) => {
+                let int_val = val.into_int_value();
+                let zero = int_val.get_type().const_int(0, false);
+                Ok(self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    int_val,
+                    zero,
+                    "bool_cast",
+                ))
+            }
+            (OtterType::F64, Some(val)) => {
+                let float_val = val.into_float_value();
+                let zero = self.context.f64_type().const_float(0.0);
+                Ok(self.builder.build_float_compare(
+                    inkwell::FloatPredicate::ONE,
+                    float_val,
+                    zero,
+                    "bool_cast",
+                ))
+            }
+            _ => bail!("expression does not evaluate to a boolean"),
+        }
+    }
+
+    fn lower_list_comprehension(
+        &mut self,
+        element: &Expr,
+        var: &str,
+        iterable: &Expr,
+        condition: &Option<Box<Expr>>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<EvaluatedValue<'ctx>> {
+        let iterable_value = self.eval_expr(iterable, ctx)?;
+        if iterable_value.ty != OtterType::List {
+            bail!("list comprehension expects list iterable");
+        }
+        let iterable_handle = iterable_value
+            .value
+            .ok_or_else(|| anyhow!("iterable expression produced no value"))?
+            .into_int_value();
+
+        let list_new = self.declare_symbol_function("list.new")?;
+        let list_call = self.builder.build_call(list_new, &[], "list_comp_new");
+        let result_handle = list_call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("list.new did not return a handle"))?
+            .into_int_value();
+
+        let len_fn = self.declare_symbol_function("len<list>")?;
+        let len_call = self
+            .builder
+            .build_call(len_fn, &[iterable_handle.into()], "list_comp_len");
+        let len_value = len_call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("len<list> did not return a value"))?
+            .into_int_value();
+
+        let index_alloca = self
+            .builder
+            .build_alloca(self.context.i64_type(), "list_comp_index");
+        self.builder
+            .build_store(index_alloca, self.context.i64_type().const_int(0, false));
+
+        let iterable_type_info = self
+            .expr_type(iterable)
+            .and_then(|ty| match ty {
+                TypeInfo::List(elem) => Some((**elem).clone()),
+                _ => None,
+            })
+            .unwrap_or(TypeInfo::Unknown);
+
+        let var_type = self.otter_type_from_typeinfo(&iterable_type_info);
+        let var_basic = self.basic_type(var_type)?;
+        let previous_var = ctx.remove(var);
+        let var_alloca = self
+            .builder
+            .build_alloca(var_basic, &format!("{}_elem", var));
+        ctx.insert(
+            var.to_string(),
+            Variable {
+                ptr: var_alloca,
+                ty: var_type,
+            },
+        );
+
+        let current_block = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| anyhow!("not in function body"))?;
+        let parent_function = current_block
+            .get_parent()
+            .ok_or_else(|| anyhow!("not inside function"))?;
+
+        let header_bb = self
+            .context
+            .append_basic_block(parent_function, "list_comp_header");
+        let body_bb = self
+            .context
+            .append_basic_block(parent_function, "list_comp_body");
+        let incr_bb = self
+            .context
+            .append_basic_block(parent_function, "list_comp_incr");
+        let end_bb = self
+            .context
+            .append_basic_block(parent_function, "list_comp_end");
+        let append_bb = condition.as_ref().map(|_| {
+            self.context
+                .append_basic_block(parent_function, "list_comp_append")
+        });
+
+        self.builder.build_unconditional_branch(header_bb);
+
+        self.builder.position_at_end(header_bb);
+        let current_index = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx")
+            .into_int_value();
+        let cond = self.builder.build_int_compare(
+            inkwell::IntPredicate::ULT,
+            current_index,
+            len_value,
+            "list_comp_cond",
+        );
+        self.builder.build_conditional_branch(cond, body_bb, end_bb);
+
+        self.builder.position_at_end(body_bb);
+        let loop_index = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_loop_idx")
+            .into_int_value();
+        let element_value =
+            self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
+        if let Some(value_basic) = element_value.value.clone() {
+            self.builder.build_store(var_alloca, value_basic);
+        }
+
+        if let Some(cond_expr) = condition {
+            let cond_value = self.eval_expr(cond_expr, ctx)?;
+            let cond_bool = self.to_bool_value(cond_value)?;
+            let append_block = append_bb.expect("append block missing");
+            self.builder
+                .build_conditional_branch(cond_bool, append_block, incr_bb);
+            self.builder.position_at_end(append_block);
+        }
+
+        let result_element = self.eval_expr(element, ctx)?;
+        self.append_list_element(result_handle, result_element)?;
+        self.builder.build_unconditional_branch(incr_bb);
+
+        self.builder.position_at_end(incr_bb);
+        let idx_val = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx_val")
+            .into_int_value();
+        let next_idx = self.builder.build_int_add(
+            idx_val,
+            self.context.i64_type().const_int(1, false),
+            "list_comp_next_idx",
+        );
+        self.builder.build_store(index_alloca, next_idx);
+        self.builder.build_unconditional_branch(header_bb);
+
+        self.builder.position_at_end(end_bb);
+
+        // Restore previous variable binding
+        ctx.remove(var);
+        if let Some(prev) = previous_var {
+            ctx.insert(var.to_string(), prev);
+        }
+
+        Ok(EvaluatedValue::with_value(
+            result_handle.into(),
+            OtterType::List,
+        ))
+    }
+
+    fn lower_dict_comprehension(
+        &mut self,
+        key: &Expr,
+        value: &Expr,
+        var: &str,
+        iterable: &Expr,
+        condition: &Option<Box<Expr>>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<EvaluatedValue<'ctx>> {
+        let iterable_value = self.eval_expr(iterable, ctx)?;
+        if iterable_value.ty != OtterType::List {
+            bail!("dict comprehension expects list iterable");
+        }
+        let iterable_handle = iterable_value
+            .value
+            .ok_or_else(|| anyhow!("iterable expression produced no value"))?
+            .into_int_value();
+
+        let map_new = self.declare_symbol_function("map.new")?;
+        let map_call = self.builder.build_call(map_new, &[], "dict_comp_new");
+        let result_handle = map_call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("map.new did not return a handle"))?
+            .into_int_value();
+
+        let len_fn = self.declare_symbol_function("len<list>")?;
+        let len_call = self
+            .builder
+            .build_call(len_fn, &[iterable_handle.into()], "dict_comp_len");
+        let len_value = len_call
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("len<list> did not return a value"))?
+            .into_int_value();
+
+        let index_alloca = self
+            .builder
+            .build_alloca(self.context.i64_type(), "dict_comp_index");
+        self.builder
+            .build_store(index_alloca, self.context.i64_type().const_int(0, false));
+
+        let iterable_type_info = self
+            .expr_type(iterable)
+            .and_then(|ty| match ty {
+                TypeInfo::List(elem) => Some((**elem).clone()),
+                _ => None,
+            })
+            .unwrap_or(TypeInfo::Unknown);
+
+        let var_type = self.otter_type_from_typeinfo(&iterable_type_info);
+        let var_basic = self.basic_type(var_type)?;
+        let previous_var = ctx.remove(var);
+        let var_alloca = self
+            .builder
+            .build_alloca(var_basic, &format!("{}_elem", var));
+        ctx.insert(
+            var.to_string(),
+            Variable {
+                ptr: var_alloca,
+                ty: var_type,
+            },
+        );
+
+        let current_block = self
+            .builder
+            .get_insert_block()
+            .ok_or_else(|| anyhow!("not in function body"))?;
+        let parent_function = current_block
+            .get_parent()
+            .ok_or_else(|| anyhow!("not inside function"))?;
+
+        let header_bb = self
+            .context
+            .append_basic_block(parent_function, "dict_comp_header");
+        let body_bb = self
+            .context
+            .append_basic_block(parent_function, "dict_comp_body");
+        let incr_bb = self
+            .context
+            .append_basic_block(parent_function, "dict_comp_incr");
+        let end_bb = self
+            .context
+            .append_basic_block(parent_function, "dict_comp_end");
+        let append_bb = condition.as_ref().map(|_| {
+            self.context
+                .append_basic_block(parent_function, "dict_comp_append")
+        });
+
+        self.builder.build_unconditional_branch(header_bb);
+
+        self.builder.position_at_end(header_bb);
+        let current_index = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx")
+            .into_int_value();
+        let cond = self.builder.build_int_compare(
+            inkwell::IntPredicate::ULT,
+            current_index,
+            len_value,
+            "dict_comp_cond",
+        );
+        self.builder.build_conditional_branch(cond, body_bb, end_bb);
+
+        self.builder.position_at_end(body_bb);
+        let loop_index = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_loop_idx")
+            .into_int_value();
+        let element_value =
+            self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
+        if let Some(value_basic) = element_value.value.clone() {
+            self.builder.build_store(var_alloca, value_basic);
+        }
+
+        if let Some(cond_expr) = condition {
+            let cond_value = self.eval_expr(cond_expr, ctx)?;
+            let cond_bool = self.to_bool_value(cond_value)?;
+            let append_block = append_bb.expect("append block missing");
+            self.builder
+                .build_conditional_branch(cond_bool, append_block, incr_bb);
+            self.builder.position_at_end(append_block);
+        }
+
+        let key_value = self.eval_expr(key, ctx)?;
+        let value_value = self.eval_expr(value, ctx)?;
+        self.set_map_entry(result_handle, key_value, value_value)?;
+        self.builder.build_unconditional_branch(incr_bb);
+
+        self.builder.position_at_end(incr_bb);
+        let idx_val = self
+            .builder
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx_val")
+            .into_int_value();
+        let next_idx = self.builder.build_int_add(
+            idx_val,
+            self.context.i64_type().const_int(1, false),
+            "dict_comp_next_idx",
+        );
+        self.builder.build_store(index_alloca, next_idx);
+        self.builder.build_unconditional_branch(header_bb);
+
+        self.builder.position_at_end(end_bb);
+
+        ctx.remove(var);
+        if let Some(prev) = previous_var {
+            ctx.insert(var.to_string(), prev);
+        }
+
+        Ok(EvaluatedValue::with_value(
+            result_handle.into(),
+            OtterType::Map,
+        ))
+    }
+
+    fn call_runtime_function(
+        &mut self,
+        name: &str,
+        args: &[BasicMetadataValueEnum<'ctx>],
+        _function: FunctionValue<'ctx>,
+        _ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<EvaluatedValue<'ctx>> {
+        let full_name = format!("runtime.{}", name.trim_start_matches("otter_").trim_start_matches("error_"));
+        let function = self.declare_symbol_function(&full_name)?;
+        let call = self.builder.build_call(function, args, &format!("call_{}", name));
+        let value = call.try_as_basic_value().left().unwrap_or_else(|| {
+            // If no return value, return unit
+            self.context.const_struct(&[], false).into()
+        });
+        Ok(EvaluatedValue {
+            value: value.into(),
+            ty: OtterType::I64, // Most runtime functions return i64/bool
+        })
+    }
+
+    fn call_runtime_function_with_string(
+        &mut self,
+        name: &str,
+        message: &str,
+        function: FunctionValue<'ctx>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<EvaluatedValue<'ctx>> {
+        // Create a global string constant for the message
+        let string_value = self.builder.build_global_string_ptr(message, "error_msg");
+        let string_ptr = string_value.as_pointer_value();
+        let len_value = self.context.i64_type().const_int(message.len() as u64, false);
+
+        let args = &[
+            string_ptr.into(),
+            len_value.into(),
+        ];
+
+        self.call_runtime_function(name, args, function, ctx)
     }
 
     fn declare_symbol_function(&mut self, name: &str) -> Result<FunctionValue<'ctx>> {
@@ -2356,7 +3271,9 @@ impl<'ctx> Compiler<'ctx> {
             FfiType::I64 => self.context.i64_type().fn_type(&params, false),
             FfiType::F64 => self.context.f64_type().fn_type(&params, false),
             FfiType::Str => self.string_ptr_type.fn_type(&params, false),
-            FfiType::Opaque => self.context.i64_type().fn_type(&params, false),
+            FfiType::Opaque | FfiType::List | FfiType::Map => {
+                self.context.i64_type().fn_type(&params, false)
+            }
         };
         Ok(fn_type)
     }
@@ -2376,7 +3293,7 @@ impl<'ctx> Compiler<'ctx> {
             FfiType::I64 => Ok(self.context.i64_type().into()),
             FfiType::F64 => Ok(self.context.f64_type().into()),
             FfiType::Str => Ok(self.string_ptr_type.into()),
-            FfiType::Opaque => Ok(self.context.i64_type().into()),
+            FfiType::Opaque | FfiType::List | FfiType::Map => Ok(self.context.i64_type().into()),
         }
     }
 
@@ -2744,7 +3661,13 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
-    fn run_default_passes(&self, level: CodegenOptLevel, enable_pgo: bool, pgo_profile_file: Option<&Path>, inline_threshold: Option<u32>) {
+    fn run_default_passes(
+        &self,
+        level: CodegenOptLevel,
+        enable_pgo: bool,
+        pgo_profile_file: Option<&Path>,
+        inline_threshold: Option<u32>,
+    ) {
         if matches!(level, CodegenOptLevel::None) {
             return;
         }
@@ -2786,7 +3709,7 @@ impl<'ctx> Compiler<'ctx> {
         pass_manager.add_function_inlining_pass();
         // Note: inkwell's API doesn't expose threshold configuration directly
         // In practice, the optimization level influences inlining aggressiveness
-        
+
         // If aggressive optimization and no threshold specified, use more aggressive inlining
         if matches!(level, CodegenOptLevel::Aggressive) && inline_threshold.is_none() {
             // Aggressive inlining is already handled by optimization level

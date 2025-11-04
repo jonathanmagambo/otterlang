@@ -1,0 +1,40 @@
+# Pythonic Syntax Demo
+# This demonstrates the new Pythonic syntax features in OtterLang
+
+use otter:fmt
+
+# Pythonic function definition (def instead of fn)
+def greet(name: string) -> string:
+    return f"Hello, {name}!"
+
+# Pythonic variable declarations (no 'let' required)
+def main:
+    # Direct assignment like Python
+    message = "Welcome to Pythonic OtterLang!"
+    count = 0
+    
+    fmt.println(message)
+    fmt.println(greet("Otter"))
+    
+    # Augmented assignments (Pythonic)
+    count += 1
+    count += 5
+    fmt.println(f"Count: {count}")
+    
+    # Pythonic match expression
+    result = match count:
+        case 1:
+            "One"
+        case 6:
+            "Six"
+        case _:
+            "Other"
+    
+    fmt.println(f"Result: {result}")
+    
+    # Lambda expressions (Pythonic)
+    square = lambda x: int -> int:
+        return x * x
+    
+    fmt.println(f"Square of 5: {square(5)}")
+

@@ -53,7 +53,11 @@ impl Formatter {
                 elif_blocks,
                 else_block,
             } => self.format_if(cond, then_block, elif_blocks, else_block, indent),
-            Statement::For { var, iterable, body } => {
+            Statement::For {
+                var,
+                iterable,
+                body,
+            } => {
                 format!(
                     "{}for {} in {}:\n{}",
                     self.indent(indent),
@@ -72,19 +76,29 @@ impl Formatter {
             }
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
-                    format!("{}return {}\n", self.indent(indent), self.format_expr(expr, indent))
+                    format!(
+                        "{}return {}\n",
+                        self.indent(indent),
+                        self.format_expr(expr, indent)
+                    )
                 } else {
                     format!("{}return\n", self.indent(indent))
                 }
             }
             Statement::Break => format!("{}break\n", self.indent(indent)),
             Statement::Continue => format!("{}continue\n", self.indent(indent)),
+            Statement::Pass => format!("{}pass\n", self.indent(indent)),
             Statement::Expr(expr) => {
-                format!("{}{}\n", self.indent(indent), self.format_expr(expr, indent))
+                format!(
+                    "{}{}\n",
+                    self.indent(indent),
+                    self.format_expr(expr, indent)
+                )
             }
             Statement::Struct {
                 name,
                 fields,
+                methods,
                 public,
                 generics,
             } => {
@@ -94,7 +108,13 @@ impl Formatter {
                 } else {
                     format!("<{}>", generics.join(", "))
                 };
-                let mut result = format!("{}{}struct {}{}:\n", self.indent(indent), pub_str, name, gen_str);
+                let mut result = format!(
+                    "{}{}struct {}{}:\n",
+                    self.indent(indent),
+                    pub_str,
+                    name,
+                    gen_str
+                );
                 for (field_name, field_type) in fields {
                     result.push_str(&format!(
                         "{}    {}: {}\n",
@@ -102,6 +122,9 @@ impl Formatter {
                         field_name,
                         self.format_type(field_type)
                     ));
+                }
+                for method in methods {
+                    result.push_str(&self.format_function(method, indent + 1));
                 }
                 result
             }
@@ -134,6 +157,52 @@ impl Formatter {
                 }
             }
             Statement::Block(block) => self.format_block(block, indent),
+            Statement::Try {
+                body,
+                handlers,
+                else_block,
+                finally_block,
+            } => {
+                let mut output = format!("{}try:\n", self.indent(indent));
+                output.push_str(&self.format_block(body, indent + 1));
+
+                for handler in handlers {
+                    output.push_str(&format!(
+                        "{}except",
+                        self.indent(indent)
+                    ));
+
+                    if let Some(ty) = &handler.exception {
+                        output.push_str(&format!(" {}", self.format_type(ty)));
+                    }
+
+                    if let Some(alias) = &handler.alias {
+                        output.push_str(&format!(" as {}", alias));
+                    }
+
+                    output.push_str(":\n");
+                    output.push_str(&self.format_block(&handler.body, indent + 1));
+                }
+
+                if let Some(else_block) = else_block {
+                    output.push_str(&format!("{}else:\n", self.indent(indent)));
+                    output.push_str(&self.format_block(else_block, indent + 1));
+                }
+
+                if let Some(finally_block) = finally_block {
+                    output.push_str(&format!("{}finally:\n", self.indent(indent)));
+                    output.push_str(&self.format_block(finally_block, indent + 1));
+                }
+
+                output
+            }
+            Statement::Raise(expr) => {
+                let expr_str = match expr {
+                    Some(e) => format!(" {}", self.format_expr(e, indent)),
+                    None => String::new(),
+                };
+                format!("{}raise{}\n", self.indent(indent), expr_str)
+            }
         }
     }
 
@@ -143,10 +212,15 @@ impl Formatter {
             .params
             .iter()
             .map(|p| {
-                if let Some(ref ty) = p.ty {
+                let base = if let Some(ref ty) = p.ty {
                     format!("{}: {}", p.name, self.format_type(ty))
                 } else {
                     p.name.clone()
+                };
+                if let Some(default) = &p.default {
+                    format!("{} = {}", base, self.format_expr(default, indent))
+                } else {
+                    base
                 }
             })
             .collect::<Vec<_>>()
@@ -220,7 +294,11 @@ impl Formatter {
                 )
             }
             Expr::Unary { op, expr } => {
-                format!("{}{}", self.format_unary_op(op), self.format_expr(expr, indent))
+                format!(
+                    "{}{}",
+                    self.format_unary_op(op),
+                    self.format_expr(expr, indent)
+                )
             }
             Expr::Call { func, args } => {
                 let args_str = args
@@ -251,7 +329,11 @@ impl Formatter {
                 )
             }
             Expr::Range { start, end } => {
-                format!("{}..{}", self.format_expr(start, indent), self.format_expr(end, indent))
+                format!(
+                    "{}..{}",
+                    self.format_expr(start, indent),
+                    self.format_expr(end, indent)
+                )
             }
             Expr::Array(elements) => {
                 let elements_str = elements
@@ -264,10 +346,54 @@ impl Formatter {
             Expr::Dict(pairs) => {
                 let pairs_str = pairs
                     .iter()
-                    .map(|(k, v)| format!("{}: {}", self.format_expr(k, indent), self.format_expr(v, indent)))
+                    .map(|(k, v)| {
+                        format!(
+                            "{}: {}",
+                            self.format_expr(k, indent),
+                            self.format_expr(v, indent)
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{{{}}}", pairs_str)
+            }
+            Expr::ListComprehension {
+                element,
+                var,
+                iterable,
+                condition,
+            } => {
+                let cond_str = condition
+                    .as_ref()
+                    .map(|cond| format!(" if {}", self.format_expr(cond, indent)))
+                    .unwrap_or_default();
+                format!(
+                    "[{} for {} in {}{}]",
+                    self.format_expr(element, indent),
+                    var,
+                    self.format_expr(iterable, indent),
+                    cond_str
+                )
+            }
+            Expr::DictComprehension {
+                key,
+                value,
+                var,
+                iterable,
+                condition,
+            } => {
+                let cond_str = condition
+                    .as_ref()
+                    .map(|cond| format!(" if {}", self.format_expr(cond, indent)))
+                    .unwrap_or_default();
+                format!(
+                    "{{{}: {} for {} in {}{}}}",
+                    self.format_expr(key, indent),
+                    self.format_expr(value, indent),
+                    var,
+                    self.format_expr(iterable, indent),
+                    cond_str
+                )
             }
             Expr::Match { value, arms } => {
                 let mut result = format!("match {}:\n", self.format_expr(value, indent));
@@ -281,14 +407,32 @@ impl Formatter {
                 }
                 result
             }
-            Expr::Lambda { params, ret_ty, body } => {
+            Expr::Struct { name, fields } => {
+                // Pythonic style: Point(x=1.0, y=2.0)
+                let fields_str = fields
+                    .iter()
+                    .map(|(fname, val)| format!("{}={}", fname, self.format_expr(val, indent)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({})", name, fields_str)
+            }
+            Expr::Lambda {
+                params,
+                ret_ty,
+                body,
+            } => {
                 let params_str = params
                     .iter()
                     .map(|p| {
-                        if let Some(ref ty) = p.ty {
+                        let base = if let Some(ref ty) = p.ty {
                             format!("{}: {}", p.name, self.format_type(ty))
                         } else {
                             p.name.clone()
+                        };
+                        if let Some(default) = &p.default {
+                            format!("{} = {}", base, self.format_expr(default, indent))
+                        } else {
+                            base
                         }
                     })
                     .collect::<Vec<_>>()
@@ -298,7 +442,12 @@ impl Formatter {
                 } else {
                     String::new()
                 };
-                format!("fn({}){} => {}", params_str, ret_str, self.format_block(body, indent + 1))
+                format!(
+                    "fn({}){} => {}",
+                    params_str,
+                    ret_str,
+                    self.format_block(body, indent + 1)
+                )
             }
             Expr::Await(expr) => format!("await {}", self.format_expr(expr, indent)),
             Expr::Spawn(expr) => format!("spawn {}", self.format_expr(expr, indent)),
@@ -307,7 +456,9 @@ impl Formatter {
                     .iter()
                     .map(|part| match part {
                         crate::ast::nodes::FStringPart::Text(s) => s.clone(),
-                        crate::ast::nodes::FStringPart::Expr(e) => format!("{{{}}}", self.format_expr(e, indent)),
+                        crate::ast::nodes::FStringPart::Expr(e) => {
+                            format!("{{{}}}", self.format_expr(e, indent))
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join("");
@@ -362,6 +513,7 @@ impl Formatter {
             }
             crate::ast::nodes::Literal::Bool(b) => b.to_string(),
             crate::ast::nodes::Literal::String(s) => format!("\"{}\"", s),
+            crate::ast::nodes::Literal::None => "None".to_string(),
             crate::ast::nodes::Literal::Unit => "()".to_string(),
         }
     }
@@ -397,6 +549,8 @@ impl Formatter {
             crate::ast::nodes::BinaryOp::LtEq => "<=",
             crate::ast::nodes::BinaryOp::Gt => ">",
             crate::ast::nodes::BinaryOp::GtEq => ">=",
+            crate::ast::nodes::BinaryOp::Is => "is",
+            crate::ast::nodes::BinaryOp::IsNot => "is not",
             crate::ast::nodes::BinaryOp::And => "and",
             crate::ast::nodes::BinaryOp::Or => "or",
         }
@@ -419,4 +573,3 @@ impl Default for Formatter {
         Self::new()
     }
 }
-

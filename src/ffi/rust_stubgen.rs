@@ -138,12 +138,20 @@ impl RustStubGenerator {
                 for p in &sig.params {
                     match map_rust_type_to_spec(p) {
                         Some(ts) => params.push(ts),
-                        None => { skip = true; break; }
+                        None => {
+                            skip = true;
+                            break;
+                        }
                     }
                 }
-                if skip { continue; }
+                if skip {
+                    continue;
+                }
                 let result = match &sig.return_type {
-                    Some(rt) => match map_rust_type_to_spec(rt) { Some(ts) => ts, None => continue },
+                    Some(rt) => match map_rust_type_to_spec(rt) {
+                        Some(ts) => ts,
+                        None => continue,
+                    },
                     None => TypeSpec::Unit,
                 };
 
@@ -159,11 +167,22 @@ impl RustStubGenerator {
                         let rp = rust_path.clone().unwrap();
                         // Call path with args; do not append .await because we spawn the future
                         // Expr placeholders {0},{1},... already substituted by render_expr_invocation
-                        format!("ffi_store::insert(rt().spawn(async move {{ {rp}({args}) }}))", rp = rp, args = (0..params.len()).map(|i| format!("{{{}}}", i)).collect::<Vec<_>>().join(", "))
+                        format!(
+                            "ffi_store::insert(rt().spawn(async move {{ {rp}({args}) }}))",
+                            rp = rp,
+                            args = (0..params.len())
+                                .map(|i| format!("{{{}}}", i))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
                     };
                     out.push(FunctionSpec {
                         name: spawn_name,
-                        symbol: format!("otter_{}_{}_spawn", self.dependency.name, sig.name.to_lowercase()),
+                        symbol: format!(
+                            "otter_{}_{}_spawn",
+                            self.dependency.name,
+                            sig.name.to_lowercase()
+                        ),
                         params: params.clone(),
                         result: TypeSpec::Opaque,
                         doc: None,
@@ -174,7 +193,9 @@ impl RustStubGenerator {
                     // await
                     let await_name = format!("{}.{}_await", export_name, sig.name);
                     let out_ty = match &sig.return_type {
-                        Some(RustTypeRef::Future { output }) => map_rust_type_to_spec(output).unwrap_or(TypeSpec::Opaque),
+                        Some(RustTypeRef::Future { output }) => {
+                            map_rust_type_to_spec(output).unwrap_or(TypeSpec::Opaque)
+                        }
                         Some(other) => map_rust_type_to_spec(other).unwrap_or(TypeSpec::Opaque),
                         None => TypeSpec::Unit,
                     };
@@ -186,7 +207,11 @@ impl RustStubGenerator {
                     );
                     out.push(FunctionSpec {
                         name: await_name,
-                        symbol: format!("otter_{}_{}_await", self.dependency.name, sig.name.to_lowercase()),
+                        symbol: format!(
+                            "otter_{}_{}_await",
+                            self.dependency.name,
+                            sig.name.to_lowercase()
+                        ),
                         params: vec![TypeSpec::Opaque],
                         result: out_ty,
                         doc: None,
@@ -198,7 +223,11 @@ impl RustStubGenerator {
                     let params_clone = params.clone();
                     out.push(FunctionSpec {
                         name: export_name,
-                        symbol: format!("otter_{}_{}", self.dependency.name, sig.name.to_lowercase()),
+                        symbol: format!(
+                            "otter_{}_{}",
+                            self.dependency.name,
+                            sig.name.to_lowercase()
+                        ),
                         params,
                         result,
                         doc: None,
@@ -217,12 +246,25 @@ impl RustStubGenerator {
 
                         match ret_ty {
                             RustTypeRef::Option { .. } => {
-                                let helper_name = format!("{}.{}_optjson", export_name_clone, sig.name);
+                                let helper_name =
+                                    format!("{}.{}_optjson", export_name_clone, sig.name);
                                 let expr = format!(
                                     "match {} {{ Some(v) => serde_json::to_string(&json!({{{{\"some\": true, \"value\": v}}}})).unwrap_or_default(), None => \"{{{{\"some\":false}}}}\".to_string() }}",
                                     rust_call
                                 );
-                                out.push(FunctionSpec { name: helper_name, symbol: format!("otter_{}_{}_optjson", self.dependency.name, sig.name.to_lowercase()), params: params_clone.clone(), result: TypeSpec::Str, doc: None, rust_path: None, call: CallTemplate::Expr(expr) });
+                                out.push(FunctionSpec {
+                                    name: helper_name,
+                                    symbol: format!(
+                                        "otter_{}_{}_optjson",
+                                        self.dependency.name,
+                                        sig.name.to_lowercase()
+                                    ),
+                                    params: params_clone.clone(),
+                                    result: TypeSpec::Str,
+                                    doc: None,
+                                    rust_path: None,
+                                    call: CallTemplate::Expr(expr),
+                                });
                             }
                             RustTypeRef::Result { .. } => {
                                 let helper_name = format!("{}.{}_try", export_name_clone, sig.name);
@@ -230,7 +272,19 @@ impl RustStubGenerator {
                                     "match {} {{ Ok(v) => serde_json::to_string(&json!({{{{\"ok\": true, \"value\": v}}}})).unwrap_or_default(), Err(e) => serde_json::to_string(&json!({{{{\"ok\": false, \"error\": format!(\"{{:?}}\", e)}}}})).unwrap_or_default() }}",
                                     rust_call
                                 );
-                                out.push(FunctionSpec { name: helper_name, symbol: format!("otter_{}_{}_try", self.dependency.name, sig.name.to_lowercase()), params: params_clone.clone(), result: TypeSpec::Str, doc: None, rust_path: None, call: CallTemplate::Expr(expr) });
+                                out.push(FunctionSpec {
+                                    name: helper_name,
+                                    symbol: format!(
+                                        "otter_{}_{}_try",
+                                        self.dependency.name,
+                                        sig.name.to_lowercase()
+                                    ),
+                                    params: params_clone.clone(),
+                                    result: TypeSpec::Str,
+                                    doc: None,
+                                    rust_path: None,
+                                    call: CallTemplate::Expr(expr),
+                                });
                             }
                             _ => {}
                         }
@@ -281,7 +335,7 @@ impl RustStubGenerator {
             "use {dep_import_name} as ffi_dep;\n",
             dep_import_name = dep_import_name
         ));
-        
+
         // Add crate-specific imports
         if self.dependency.name == "rand" {
             source.push_str("use rand::distributions::Distribution;\n");

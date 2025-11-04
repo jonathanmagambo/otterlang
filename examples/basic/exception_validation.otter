@@ -1,0 +1,75 @@
+use otter:fmt
+
+fn validate_age(age_str: str) -> i32:
+    if len(age_str) == 0:
+        raise "Age is required"
+    if age_str == "abc":
+        raise "Age must be a number"
+    let age = 25
+    if age < 18:
+        raise "Must be 18 or older"
+    return age
+
+fn validate_user(name: str, email: str, age_str: str) -> str:
+    if len(name) < 2:
+        raise "Name must be at least 2 characters"
+    if not email.contains("@"):
+        raise "Invalid email format"
+    let age = validate_age(age_str)
+    return name + " validated"
+
+fn process_users():
+    let valid_users = []
+    try:
+        let result = validate_user("Alice", "alice@example.com", "25")
+        valid_users.append("Alice")
+        fmt.println("✓ User Alice validated successfully")
+    except Error as e:
+        fmt.println("✗ Validation failed: " + e.message)
+    finally:
+        fmt.println("Processed user: Alice")
+    try:
+        let result = validate_user("Bob", "invalid-email", "17")
+        valid_users.append("Bob")
+        fmt.println("✓ User Bob validated successfully")
+    except Error as e:
+        fmt.println("✗ Validation failed: " + e.message)
+    finally:
+        fmt.println("Processed user: Bob")
+    return valid_users
+
+fn safe_api_call(endpoint: str, should_fail: bool) -> str:
+    fmt.println("Calling API: " + endpoint)
+    if should_fail:
+        raise "API call failed"
+    return "Response from " + endpoint
+
+fn api_processing_demo():
+    fmt.println("API Processing with Exception Handling")
+    fmt.println("=====================================")
+    try:
+        let response = safe_api_call("/users", false)
+        fmt.println("✓ API call successful: " + response)
+    except Error as e:
+        fmt.println("✗ API call failed: " + e.message)
+    else:
+        fmt.println("✓ No errors in API call")
+    finally:
+        fmt.println("✓ Completed API call")
+    try:
+        let response = safe_api_call("/invalid", true)
+        fmt.println("✓ API call successful: " + response)
+    except Error as e:
+        fmt.println("✗ API call failed: " + e.message)
+    else:
+        fmt.println("✓ No errors in API call")
+    finally:
+        fmt.println("✓ Completed API call")
+
+fn main():
+    fmt.println("Exception Handling - Data Validation & APIs")
+    fmt.println("==========================================")
+    let valid_users = process_users()
+    fmt.println("Successfully validated users count: 1")
+    fmt.println()
+    api_processing_demo()

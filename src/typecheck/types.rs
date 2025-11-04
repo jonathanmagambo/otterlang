@@ -17,16 +17,21 @@ pub enum TypeInfo {
     F64,
     /// String type
     Str,
+    /// List type with element type information
+    List(Box<TypeInfo>),
+    /// Dictionary type with key/value types
+    Dict {
+        key: Box<TypeInfo>,
+        value: Box<TypeInfo>,
+    },
     /// Function type with parameter and return types
     Function {
         params: Vec<TypeInfo>,
+        param_defaults: Vec<bool>,
         return_type: Box<TypeInfo>,
     },
     /// Generic type (e.g., List<T>, Map<K, V>)
-    Generic {
-        base: String,
-        args: Vec<TypeInfo>,
-    },
+    Generic { base: String, args: Vec<TypeInfo> },
     /// Struct type (record type)
     Struct {
         name: String,
@@ -49,7 +54,10 @@ impl TypeInfo {
         match self {
             TypeInfo::Generic { base, args } if args.is_empty() => {
                 // This is a generic type parameter
-                substitutions.get(base).cloned().unwrap_or_else(|| self.clone())
+                substitutions
+                    .get(base)
+                    .cloned()
+                    .unwrap_or_else(|| self.clone())
             }
             TypeInfo::Generic { base, args } => {
                 // This is a generic type with arguments
@@ -58,13 +66,26 @@ impl TypeInfo {
                     args: args.iter().map(|a| a.substitute(substitutions)).collect(),
                 }
             }
-            TypeInfo::Function { params, return_type } => TypeInfo::Function {
+            TypeInfo::Function {
+                params,
+                param_defaults,
+                return_type,
+            } => TypeInfo::Function {
                 params: params.iter().map(|p| p.substitute(substitutions)).collect(),
+                param_defaults: param_defaults.clone(),
                 return_type: Box::new(return_type.substitute(substitutions)),
+            },
+            TypeInfo::List(element) => TypeInfo::List(Box::new(element.substitute(substitutions))),
+            TypeInfo::Dict { key, value } => TypeInfo::Dict {
+                key: Box::new(key.substitute(substitutions)),
+                value: Box::new(value.substitute(substitutions)),
             },
             TypeInfo::Struct { name, fields } => TypeInfo::Struct {
                 name: name.clone(),
-                fields: fields.iter().map(|(k, v)| (k.clone(), v.substitute(substitutions))).collect(),
+                fields: fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.substitute(substitutions)))
+                    .collect(),
             },
             _ => self.clone(),
         }
@@ -89,10 +110,7 @@ impl TypeInfo {
             (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
 
             // Struct types must match exactly
-            (
-                TypeInfo::Struct { name: n1, .. },
-                TypeInfo::Struct { name: n2, .. },
-            ) => n1 == n2,
+            (TypeInfo::Struct { name: n1, .. }, TypeInfo::Struct { name: n2, .. }) => n1 == n2,
 
             // Generic types must match structure
             (
@@ -102,7 +120,7 @@ impl TypeInfo {
                 if b1 != b2 {
                     return false;
                 }
-                
+
                 // If one is a generic parameter and the other is concrete, they're compatible
                 if a1.is_empty() && !a2.is_empty() {
                     return true; // Generic parameter accepts any concrete type
@@ -110,29 +128,39 @@ impl TypeInfo {
                 if !a1.is_empty() && a2.is_empty() {
                     return true; // Generic parameter accepts any concrete type
                 }
-                
+
                 // Both have arguments, check compatibility
                 a1.len() == a2.len()
-                    && a1.iter()
+                    && a1
+                        .iter()
                         .zip(a2.iter())
                         .all(|(t1, t2)| t1.is_compatible_with(t2))
+            }
+            (TypeInfo::List(elem1), TypeInfo::List(elem2)) => elem1.is_compatible_with(elem2),
+            (TypeInfo::Dict { key: k1, value: v1 }, TypeInfo::Dict { key: k2, value: v2 }) => {
+                k1.is_compatible_with(k2) && v1.is_compatible_with(v2)
             }
 
             // Function types must match signature
             (
                 TypeInfo::Function {
                     params: p1,
+                    param_defaults: d1,
                     return_type: r1,
                 },
                 TypeInfo::Function {
                     params: p2,
+                    param_defaults: d2,
                     return_type: r2,
                 },
             ) => {
                 p1.len() == p2.len()
-                    && p1.iter()
+                    && d1.len() == d2.len()
+                    && p1
+                        .iter()
                         .zip(p2.iter())
                         .all(|(t1, t2)| t1.is_compatible_with(t2))
+                    && d1.iter().zip(d2.iter()).all(|(a, b)| a == b)
                     && r1.is_compatible_with(r2)
             }
 
@@ -147,19 +175,27 @@ impl TypeInfo {
     /// Get a display name for the type
     pub fn display_name(&self) -> String {
         match self {
-            TypeInfo::Unit => "unit".to_string(),
+            TypeInfo::Unit => "None".to_string(),
             TypeInfo::Bool => "bool".to_string(),
             TypeInfo::I32 => "i32".to_string(),
             TypeInfo::I64 => "i64".to_string(),
             TypeInfo::F64 => "f64".to_string(),
             TypeInfo::Str => "str".to_string(),
-            TypeInfo::Function { params, return_type } => {
+            TypeInfo::Function {
+                params,
+                param_defaults: _,
+                return_type,
+            } => {
                 let params_str = params
                     .iter()
                     .map(|t| t.display_name())
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("fn({}) -> {}", params_str, return_type.display_name())
+            }
+            TypeInfo::List(element) => format!("list<{}>", element.display_name()),
+            TypeInfo::Dict { key, value } => {
+                format!("dict<{}, {}>", key.display_name(), value.display_name())
             }
             TypeInfo::Generic { base, args } => {
                 if args.is_empty() {
@@ -195,20 +231,40 @@ impl From<&Type> for TypeInfo {
     fn from(ty: &Type) -> Self {
         match ty {
             Type::Simple(name) => match name.as_str() {
-                "unit" => TypeInfo::Unit,
+                "unit" | "None" | "none" => TypeInfo::Unit,
                 "bool" => TypeInfo::Bool,
                 "i32" => TypeInfo::I32,
                 "i64" => TypeInfo::I64,
                 "f64" | "float" => TypeInfo::F64,
                 "str" => TypeInfo::Str,
+                "list" | "List" => TypeInfo::List(Box::new(TypeInfo::Unknown)),
+                "dict" | "Dict" => TypeInfo::Dict {
+                    key: Box::new(TypeInfo::Unknown),
+                    value: Box::new(TypeInfo::Unknown),
+                },
+                "Error" => TypeInfo::Error,
                 _ => TypeInfo::Generic {
                     base: name.clone(),
                     args: Vec::new(),
                 },
             },
-            Type::Generic { base, args } => TypeInfo::Generic {
-                base: base.clone(),
-                args: args.iter().map(|t| t.into()).collect(),
+            Type::Generic { base, args } => match base.as_str() {
+                "List" | "list" => {
+                    let element = args.get(0).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
+                    TypeInfo::List(Box::new(element))
+                }
+                "Dict" | "dict" => {
+                    let key = args.get(0).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
+                    let value = args.get(1).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
+                    TypeInfo::Dict {
+                        key: Box::new(key),
+                        value: Box::new(value),
+                    }
+                }
+                _ => TypeInfo::Generic {
+                    base: base.clone(),
+                    args: args.iter().map(|t| t.into()).collect(),
+                },
             },
         }
     }
@@ -223,6 +279,11 @@ impl From<&str> for TypeInfo {
             "i64" => TypeInfo::I64,
             "f64" => TypeInfo::F64,
             "str" => TypeInfo::Str,
+            "list" | "List" => TypeInfo::List(Box::new(TypeInfo::Unknown)),
+            "dict" | "Dict" => TypeInfo::Dict {
+                key: Box::new(TypeInfo::Unknown),
+                value: Box::new(TypeInfo::Unknown),
+            },
             _ => TypeInfo::Generic {
                 base: name.to_string(),
                 args: Vec::new(),
@@ -305,12 +366,20 @@ impl TypeContext {
         self
     }
 
+    pub fn insert_function(&mut self, name: String, ty: TypeInfo) {
+        self.functions.insert(name, ty);
+    }
+
     pub fn insert_variable(&mut self, name: String, ty: TypeInfo) {
         self.variables.insert(name, ty);
     }
 
     pub fn get_variable(&self, name: &str) -> Option<&TypeInfo> {
         self.variables.get(name)
+    }
+
+    pub fn remove_variable(&mut self, name: &str) -> Option<TypeInfo> {
+        self.variables.remove(name)
     }
 
     pub fn get_function(&self, name: &str) -> Option<&TypeInfo> {
@@ -351,4 +420,3 @@ impl Default for TypeContext {
         Self::new()
     }
 }
-

@@ -155,7 +155,8 @@ fn worker_loop(
         }
 
         let queue_depth = local.len();
-        core.metrics.update_worker_info(index, WorkerState::Busy, queue_depth);
+        core.metrics
+            .update_worker_info(index, WorkerState::Busy, queue_depth);
 
         if let Some(task) = local.pop() {
             backoff.reset();
@@ -234,9 +235,11 @@ fn worker_loop(
         consecutive_idle += 1;
         let queue_depth = local.len();
         if consecutive_idle > 10 {
-            core.metrics.update_worker_info(index, WorkerState::Idle, queue_depth);
+            core.metrics
+                .update_worker_info(index, WorkerState::Idle, queue_depth);
         } else {
-            core.metrics.update_worker_info(index, WorkerState::Parked, queue_depth);
+            core.metrics
+                .update_worker_info(index, WorkerState::Parked, queue_depth);
         }
 
         // Check for timer wakeups and yield slightly.
@@ -262,7 +265,9 @@ fn autoscaler_loop(core: Arc<SchedulerCore>) {
         let snapshot = core.metrics.snapshot();
         let _current_workers = core.worker_count.load(Ordering::Relaxed);
         let _queue_depth = snapshot.tasks_waiting;
-        let active_workers = snapshot.worker_infos.iter()
+        let active_workers = snapshot
+            .worker_infos
+            .iter()
             .filter(|w| w.state == WorkerState::Busy)
             .count();
 
@@ -271,7 +276,7 @@ fn autoscaler_loop(core: Arc<SchedulerCore>) {
         // - If most workers are idle for extended period, consider scaling down
         // Note: Actual worker addition/removal is complex with crossbeam-deque
         // For now, we just track and report the metrics
-        
+
         // Update active worker count
         core.metrics.set_active_workers(active_workers);
     }

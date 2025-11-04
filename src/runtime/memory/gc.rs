@@ -95,10 +95,9 @@ impl MarkSweepGC {
 
     /// Register an object for GC tracking
     pub fn register_object(&self, ptr: usize, size: usize, references: Vec<usize>) {
-        self.objects.write().insert(
-            ptr,
-            ObjectInfo { size, references },
-        );
+        self.objects
+            .write()
+            .insert(ptr, ObjectInfo { size, references });
     }
 
     /// Unregister an object
@@ -206,9 +205,13 @@ impl HybridGC {
 
     /// Record an allocation (for cycle detection scheduling)
     pub fn record_allocation(&self) {
-        let count = self.allocations_since_cycle_check.fetch_add(1, Ordering::SeqCst) + 1;
+        let count = self
+            .allocations_since_cycle_check
+            .fetch_add(1, Ordering::SeqCst)
+            + 1;
         if count >= self.cycle_detection_interval {
-            self.allocations_since_cycle_check.store(0, Ordering::SeqCst);
+            self.allocations_since_cycle_check
+                .store(0, Ordering::SeqCst);
             // Trigger cycle detection
             let _ = self.mark_sweep_gc.collect();
         }
@@ -296,4 +299,3 @@ static GLOBAL_GC: once_cell::sync::Lazy<GcManager> = once_cell::sync::Lazy::new(
 pub fn get_gc() -> &'static GcManager {
     &GLOBAL_GC
 }
-

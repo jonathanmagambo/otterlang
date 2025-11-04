@@ -341,16 +341,16 @@ pub extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
         return 0;
     }
     let path_str = unsafe { CStr::from_ptr(path).to_str().unwrap_or("").to_string() };
-    
+
     match fs::read_dir(&path_str) {
         Ok(entries) => {
             extern "C" {
                 fn otter_builtin_list_new() -> u64;
                 fn otter_builtin_append_list_string(handle: u64, val: *const c_char) -> i32;
             }
-            
+
             let list_handle = unsafe { otter_builtin_list_new() };
-            
+
             for entry in entries {
                 if let Ok(entry) = entry {
                     if let Some(file_name) = entry.file_name().to_str() {
@@ -363,7 +363,7 @@ pub extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
                     }
                 }
             }
-            
+
             list_handle
         }
         Err(_) => 0,

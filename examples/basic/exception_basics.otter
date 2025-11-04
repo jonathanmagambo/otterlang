@@ -1,0 +1,26 @@
+use otter:fmt
+
+fn divide(x: i32, y: i32) -> i32:
+    if y == 0:
+        raise "Division by zero"
+    return x / y
+
+fn safe_divide(x: i32, y: i32) -> i32:
+    try:
+        return divide(x, y)
+    except Error as e:
+        fmt.println("Error: " + e.message)
+        return 0
+
+fn main():
+    fmt.println("Exception Handling Basics")
+    fmt.println("========================")
+    let result1 = safe_divide(10, 2)
+    fmt.println("10 / 2 = " + result1)
+    let result2 = safe_divide(10, 0)
+    fmt.println("10 / 0 = " + result2)
+    fmt.println("Testing bare raise:")
+    try:
+        raise
+    except Error:
+        fmt.println("Bare raise caught!")

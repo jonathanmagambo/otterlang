@@ -48,6 +48,7 @@ impl ConstantPropagator {
                 // Unit type has no runtime constant representation
                 None
             }
+            crate::ast::nodes::Literal::None => None,
         }
     }
 }
@@ -57,4 +58,3 @@ impl Default for ConstantPropagator {
         Self::new()
     }
 }
-

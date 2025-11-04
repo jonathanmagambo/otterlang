@@ -42,18 +42,18 @@ impl<T> TaskChannel<T> {
     pub fn send(&self, value: T) {
         let mut queue = self.inner.queue.lock();
         let mut wakers = self.inner.receiver_wakers.lock();
-        
+
         if let Some(metrics) = &self.inner.metrics {
             metrics.record_channel_backlog(1);
         }
-        
+
         queue.push(value);
-        
+
         // Wake up one waiting receiver (task-aware)
         if let Some(waker) = wakers.pop() {
             waker.wake();
         }
-        
+
         // Also notify condvar for blocking recv
         self.inner.condvar.notify_one();
     }
@@ -65,10 +65,10 @@ impl<T> TaskChannel<T> {
         if let Some(value) = self.try_recv() {
             return Some(value);
         }
-        
+
         // For blocking recv, use condvar to wait for data
         let mut queue = self.inner.queue.lock();
-        
+
         loop {
             if !queue.is_empty() {
                 let value = queue.remove(0);
@@ -77,11 +77,11 @@ impl<T> TaskChannel<T> {
                 }
                 return Some(value);
             }
-            
+
             if *self.inner.closed.lock() {
                 return None;
             }
-            
+
             self.inner.condvar.wait(&mut queue);
         }
     }
@@ -105,7 +105,7 @@ impl<T> TaskChannel<T> {
     /// the waker and suspend the task.
     pub fn recv_async(&self, waker: &Waker) -> Result<T, Waker> {
         let mut queue = self.inner.queue.lock();
-        
+
         if let Some(value) = queue.pop() {
             if let Some(metrics) = &self.inner.metrics {
                 metrics.record_channel_backlog(-1);
@@ -132,13 +132,13 @@ impl<T> TaskChannel<T> {
             return;
         }
         *closed = true;
-        
+
         // Wake all task-aware wakers
         let mut wakers = self.inner.receiver_wakers.lock();
         for waker in wakers.drain(..) {
             waker.wake();
         }
-        
+
         // Wake blocking receivers
         self.inner.condvar.notify_all();
     }
@@ -218,11 +218,11 @@ pub fn select2<T1, T2>(
     if let Some(value2) = ch2.try_recv() {
         return Ok(SelectResult::Second(value2));
     }
-    
+
     // Both channels are empty, register wakers on both
     ch1.register_waker(waker);
     ch2.register_waker(waker);
-    
+
     // Return pending (caller should suspend)
     Err(())
 }
@@ -241,11 +241,11 @@ pub fn select2_async<T1, T2>(
     if let Some(value2) = ch2.try_recv() {
         return Ok(SelectResult::Second(value2));
     }
-    
+
     // Both channels are empty, register wakers on both
     ch1.register_waker(waker);
     ch2.register_waker(waker);
-    
+
     // Return pending
     Err(waker.clone())
 }

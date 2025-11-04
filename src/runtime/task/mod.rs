@@ -10,12 +10,14 @@ mod task;
 mod timer;
 mod tls;
 
-pub use channel::{SelectResult, TaskChannel, TaskMailBox, select2, select2_async};
+pub use channel::{select2, select2_async, SelectResult, TaskChannel, TaskMailBox};
 pub use metrics::{TaskMetricsSnapshot, TaskRuntimeMetrics, WorkerInfo, WorkerState};
 pub use scheduler::{SchedulerConfig, TaskScheduler};
 pub use task::{CancellationToken, JoinFuture, JoinHandle, Task, TaskFn, TaskId, TaskState};
 pub use timer::TimerWheel;
-pub use tls::{get_task_local_storage, cleanup_task_local_storage, TaskLocalStorage, TaskLocalRegistry};
+pub use tls::{
+    cleanup_task_local_storage, get_task_local_storage, TaskLocalRegistry, TaskLocalStorage,
+};
 
 use std::sync::Once;
 
@@ -31,9 +33,7 @@ impl TaskRuntime {
         // Register metrics with runtime for FFI access
         #[cfg(feature = "task-runtime")]
         crate::runtime::stdlib::runtime::register_task_metrics(scheduler.metrics());
-        Self {
-            scheduler,
-        }
+        Self { scheduler }
     }
 
     pub fn scheduler(&self) -> &TaskScheduler {

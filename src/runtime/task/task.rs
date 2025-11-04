@@ -47,7 +47,8 @@ impl CancellationToken {
     }
 
     pub fn cancel(&self) {
-        self.cancelled.store(true, std::sync::atomic::Ordering::Release);
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -181,7 +182,7 @@ impl Task {
         }
 
         self.state = TaskState::Running;
-        
+
         // Run the function, but check for cancellation periodically
         // Note: For cooperative cancellation, tasks should check cancellation_token themselves
         if let Some(func) = self.func.take() {
@@ -205,9 +206,13 @@ pub struct JoinHandle {
 }
 
 impl JoinHandle {
-    pub fn new(task_id: TaskId, state: Arc<JoinState>, cancellation_token: CancellationToken) -> Self {
-        Self { 
-            task_id, 
+    pub fn new(
+        task_id: TaskId,
+        state: Arc<JoinState>,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        Self {
+            task_id,
             state,
             cancellation_token,
         }

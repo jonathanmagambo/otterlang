@@ -19,7 +19,12 @@ pub struct TargetTriple {
 
 impl TargetTriple {
     /// Create a new target triple
-    pub fn new(arch: impl Into<String>, vendor: impl Into<String>, os: impl Into<String>, env: Option<impl Into<String>>) -> Self {
+    pub fn new(
+        arch: impl Into<String>,
+        vendor: impl Into<String>,
+        os: impl Into<String>,
+        env: Option<impl Into<String>>,
+    ) -> Self {
         Self {
             arch: arch.into(),
             vendor: vendor.into(),
@@ -31,7 +36,7 @@ impl TargetTriple {
     /// Parse a target triple string (e.g., "x86_64-unknown-linux-gnu")
     pub fn parse(triple: &str) -> Result<Self, String> {
         let parts: Vec<&str> = triple.split('-').collect();
-        
+
         if parts.len() < 3 {
             return Err(format!("Invalid target triple format: {}", triple));
         }
@@ -41,7 +46,7 @@ impl TargetTriple {
         if arch == "arm64" {
             arch = "aarch64".to_string();
         }
-        
+
         let vendor = parts[1].to_string();
         let raw_os = parts[2];
 
@@ -75,7 +80,12 @@ impl TargetTriple {
             None
         };
 
-        Ok(Self { arch, vendor, os, env })
+        Ok(Self {
+            arch,
+            vendor,
+            os,
+            env,
+        })
     }
 
     /// Convert to LLVM target triple string
@@ -103,7 +113,10 @@ impl TargetTriple {
 
     /// Check if this is a Unix-like target
     pub fn is_unix(&self) -> bool {
-        matches!(self.os.as_str(), "linux" | "darwin" | "freebsd" | "openbsd" | "netbsd")
+        matches!(
+            self.os.as_str(),
+            "linux" | "darwin" | "freebsd" | "openbsd" | "netbsd"
+        )
     }
 
     /// Get the appropriate linker for this target
@@ -693,7 +706,7 @@ impl Default for TargetTriple {
         // Get native target from LLVM
         let llvm_triple = inkwell::targets::TargetMachine::get_default_triple();
         let triple_str = llvm_triple.to_string();
-        
+
         // Normalize common macOS triples
         // Convert "arm64" to "aarch64" for LLVM compatibility
         if triple_str.starts_with("arm64-apple-darwin") {
@@ -701,9 +714,8 @@ impl Default for TargetTriple {
         } else if triple_str.starts_with("x86_64-apple-darwin") {
             Self::new("x86_64", "apple", "darwin", None::<String>)
         } else {
-            Self::parse(&triple_str).unwrap_or_else(|_| {
-                Self::new("x86_64", "unknown", "linux", Some("gnu"))
-            })
+            Self::parse(&triple_str)
+                .unwrap_or_else(|_| Self::new("x86_64", "unknown", "linux", Some("gnu")))
         }
     }
 }
@@ -767,4 +779,3 @@ mod tests {
         assert!(triple.is_embedded());
     }
 }
-
