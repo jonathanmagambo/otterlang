@@ -1425,8 +1425,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             Statement::Try {
                 body,
-                handlers,
-                else_block,
+                handlers: _,
+                else_block: _,
                 finally_block,
             } => {
                 // Simplified implementation: just execute the try body and finally block
@@ -3151,6 +3151,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ))
     }
 
+    #[allow(dead_code)]
     fn call_runtime_function(
         &mut self,
         name: &str,
@@ -3171,6 +3172,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         })
     }
 
+    #[allow(dead_code)]
     fn call_runtime_function_with_string(
         &mut self,
         name: &str,
