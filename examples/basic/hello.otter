@@ -1,0 +1,8 @@
+fn sqrt_approx(n: float, guess: float) -> float:
+    let next_guess = (guess + n / guess) / 2.0
+    if next_guess == guess:
+        return guess
+    return sqrt_approx(n, next_guess)
+
+fn main():
+    let result = sqrt_approx(25.0, 5.0)

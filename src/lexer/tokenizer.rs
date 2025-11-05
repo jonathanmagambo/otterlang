@@ -487,19 +487,35 @@ impl LexerState {
         let start = self.offset;
         self.advance(1); // Skip opening quote
 
+        let mut result = String::new();
+
         while let Some(ch) = self.current_char() {
             match ch {
                 b'"' => {
-                    let value = unsafe {
-                        std::str::from_utf8_unchecked(&self.source[start + 1..self.offset])
-                    };
                     let span = Span::new(start, self.offset + 1);
                     self.tokens.push(Token::new(
-                        TokenKind::StringLiteral(value.to_string()),
+                        TokenKind::StringLiteral(result),
                         span,
                     ));
                     self.advance(1);
                     return;
+                }
+                b'\\' => {
+                    // Escape sequence
+                    self.advance(1);
+                    if let Some(escaped) = self.current_char() {
+                        let escaped_char = match escaped {
+                            b'n' => '\n',
+                            b't' => '\t',
+                            b'r' => '\r',
+                            b'\\' => '\\',
+                            b'"' => '"',
+                            b'\'' => '\'',
+                            _ => escaped as char, // Unknown escape, keep as-is
+                        };
+                        result.push(escaped_char);
+                        self.advance(1);
+                    }
                 }
                 b'\n' => {
                     let span = self.create_span(start, self.offset - start);
@@ -511,6 +527,7 @@ impl LexerState {
                     return;
                 }
                 _ => {
+                    result.push(ch as char);
                     self.advance(1);
                 }
             }
@@ -529,17 +546,35 @@ impl LexerState {
         let start = self.offset;
         self.advance(2); // Skip f"
 
+        let mut result = String::new();
+
         while let Some(ch) = self.current_char() {
             match ch {
                 b'"' => {
-                    let value = unsafe {
-                        std::str::from_utf8_unchecked(&self.source[start + 2..self.offset])
-                    };
                     let span = Span::new(start, self.offset + 1);
                     self.tokens
-                        .push(Token::new(TokenKind::FString(value.to_string()), span));
+                        .push(Token::new(TokenKind::FString(result), span));
                     self.advance(1);
                     return;
+                }
+                b'\\' => {
+                    // Escape sequence
+                    self.advance(1);
+                    if let Some(escaped) = self.current_char() {
+                        let escaped_char = match escaped {
+                            b'n' => '\n',
+                            b't' => '\t',
+                            b'r' => '\r',
+                            b'\\' => '\\',
+                            b'"' => '"',
+                            b'\'' => '\'',
+                            b'{' => '{',
+                            b'}' => '}',
+                            _ => escaped as char, // Unknown escape, keep as-is
+                        };
+                        result.push(escaped_char);
+                        self.advance(1);
+                    }
                 }
                 b'\n' => {
                     let span = self.create_span(start, self.offset - start);
@@ -551,6 +586,7 @@ impl LexerState {
                     return;
                 }
                 _ => {
+                    result.push(ch as char);
                     self.advance(1);
                 }
             }

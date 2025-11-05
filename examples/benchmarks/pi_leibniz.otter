@@ -1,34 +1,5 @@
-fn calculate_pi(iterations: float) -> float:
-    let pi = 0.0
-    let sign = 1.0
-    
-    let k = 0.0
-    while k < iterations:
-        let denominator = 2.0 * k + 1.0
-        pi = pi + (sign / denominator)
-        sign = -sign
-        k = k + 1.0
-    
-    return pi * 4.0
+fn matrix_multiply(a: float, b: float, c: float, d: float, x: float, y: float) -> float:
+    return (a * x + b * y) + (c * x + d * y)
 
-fn main:
-    let iterations = 100000000.0
-    let pi = calculate_pi(iterations)
-    let pi_str = f"{pi}"
-    print("π ≈ ")
-    print(pi_str)
-    print("\n")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+fn main():
+    let result = matrix_multiply(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)

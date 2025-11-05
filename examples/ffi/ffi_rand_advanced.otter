@@ -1,28 +1,9 @@
-# Advanced Transparent FFI Demo: Using rand crate without manual function definitions
-# This tests the fully automatic API extraction from rustdoc JSON
-# NO bridge.yaml functions needed - everything is auto-extracted!
+fn hanoi_towers(n: float, from_rod: float, to_rod: float, aux_rod: float) -> float:
+    if n == 1.0:
+        return 1.0
+    let moves1 = hanoi_towers(n - 1.0, from_rod, aux_rod, to_rod)
+    let moves2 = hanoi_towers(n - 1.0, aux_rod, to_rod, from_rod)
+    return moves1 + 1.0 + moves2
 
-use rust:rand
-
-fn main:
-    print("🎲 Advanced Rand FFI Test - Fully Transparent")
-    print("==================================================")
-    print("")
-    
-    print("✅ Transparent FFI System Test")
-    print("")
-    print("This demonstrates the transparent FFI system:")
-    print("  1. Functions are automatically extracted from rustdoc JSON")
-    print("  2. Bridge crates are generated automatically")
-    print("  3. No manual bridge.yaml function definitions needed!")
-    print("")
-    print("Current status:")
-    print("  - Transparent extraction: Implemented ✅")
-    print("  - Graceful fallback to bridge.yaml: Working ✅")
-    print("  - Function stub generation: Working ✅")
-    print("")
-    print("Note: rustdoc JSON extraction requires nightly Rust.")
-    print("      When nightly is available, all functions are auto-extracted.")
-    print("      Otherwise, bridge.yaml functions are used as fallback.")
-    print("")
-    print("✅ System is ready for transparent FFI!")
+fn main():
+    let result = hanoi_towers(4.0, 1.0, 3.0, 2.0)

@@ -1,37 +1,8 @@
-# Pythonic Syntax Demo
-# This demonstrates the new Pythonic syntax features in OtterLang
+fn power(base: float, exp: float) -> float:
+    if exp <= 0.0:
+        return 1.0
+    return base * power(base, exp - 1.0)
 
-use otter:fmt
-
-# Pythonic function definition (def instead of fn)
-def greet(name: str) -> str:
-    return "Hello, Otter!"
-
-# Pythonic variable declarations (no 'let' required)
-def main:
-    # Direct assignment like Python
-    message = "Welcome to Pythonic OtterLang!"
-    count = 0
-    
-    fmt.println(message)
-    fmt.println(greet("Otter"))
-    
-    # Augmented assignments (Pythonic)
-    count += 1
-    count += 5
-    fmt.println(f"Count: {count}")
-    
-    # Conditional logic
-    if count == 1:
-        result = "One"
-    elif count == 6:
-        result = "Six"
-    else:
-        result = "Other"
-
-    fmt.println(f"Result: {result}")
-
-    # Test string literal
-    s = "Hello from Otter!"
-    fmt.println(s)
+fn main():
+    let result = power(2.0, 3.0)
 

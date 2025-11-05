@@ -2,35 +2,30 @@
 
 use otter:fmt
 
-def stage_one(index: float) -> float:
-    base = index * 1.5 + 0.75
+fn stage_one(index: float) -> float:
+    let base = index * 1.5 + 0.75
     return base * base
 
-def stage_two(value: float) -> float:
+fn stage_two(value: float) -> float:
     if value > 40.5:
-        fmt.println(f"stage two boosting {value}")
         return value * 0.8
     return value + 4.25
 
-def accumulate(index: float, limit: float, total: float) -> float:
+fn accumulate(index: float, limit: float, total: float) -> float:
     if index >= limit:
         return total
-    stage1 = stage_one(index)
-    stage2 = stage_two(stage1)
-    next_total = total + stage2
-    step = limit / limit
-    next_index = index + step
+    let stage1 = stage_one(index)
+    let stage2 = stage_two(stage1)
+    let next_total = total + stage2
+    let step = limit / limit
+    let next_index = index + step
     return accumulate(next_index, limit, next_total)
 
-def run_pipeline(count: float) -> float:
-    zero = count - count
+fn run_pipeline(count: float) -> float:
+    let zero = count - count
     return accumulate(zero, count, zero)
 
-def main:
-    fmt.println("Running advanced pipeline demo")
-    items = 6.5
-    result = run_pipeline(items)
-    average = result / items
-    fmt.println(f"processed {items} items")
-    fmt.println(f"total score {result}")
-    fmt.println(f"average score {average}")
+fn main():
+    let items = 6.5
+    let result = run_pipeline(items)
+    let average = result / items

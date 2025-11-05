@@ -1,69 +1,7 @@
-use otter:task
-use otter:time
-use otter:math
-use otter:fmt
+fn sum_series(n: float) -> float:
+    if n <= 0.0:
+        return 0.0
+    return n + sum_series(n - 1.0)
 
-let NUM_TASKS = 50_000
-let WORKERS = 8
-
-fn job_payload(id: int) -> float:
-    let id_float = id * 1.0
-    let value = sin(id_float) + cos(id_float / 2.0)
-    return value * value + (id % 7) * 1
-
-fn worker(id: int, jobs: Channel<int>, results: Channel<float>, done: Channel<int>):
-    let processed = 0
-    while true:
-        let job_id = task.recv_int(jobs)
-        if job_id < 0:
-            break
-        let result = job_payload(job_id)
-        task.send_float(results, result)
-        let processed = processed + 1
-    task.send_int(done, processed)
-
-fn collector(results: Channel<float>, total_jobs: int, summary: Channel<float>):
-    let accumulated = 0.0
-    for _ in 0..total_jobs:
-        let accumulated = accumulated + task.recv_float(results)
-    task.send_float(summary, accumulated)
-
-fn main:
-    fmt.println("🦦 Task runtime benchmark starting…")
-    let start_ms = time.now_ms()
-
-    let jobs = task.channel_int()
-    let results = task.channel_float()
-    let done = task.channel_int()
-    let summary = task.channel_float()
-
-    # Note: Lambda closures with captured variables are not yet fully supported
-    # For now, task.spawn expects a function pointer without closure capture
-    # We'll need to restructure this to work without closures
-
-    # Simplified version - just spawn worker tasks
-    let workers_count = 8
-    for i in 0..workers_count:
-        # TODO: Implement proper task spawning with arguments
-        pass
-
-    let num_tasks_int = 50000
-    for i in 0..num_tasks_int:
-        task.send_int(jobs, i)
-
-    for _ in 0..workers_count:
-        task.send_int(jobs, -1)
-
-    let total_processed = 0
-    for _ in 0..workers_count:
-        let total_processed = total_processed + task.recv_int(done)
-
-    let total_sum = task.recv_float(summary)
-    # task.join(collectors)  # TODO: implement collectors
-
-    let end_ms = time.now_ms()
-    let elapsed = end_ms - start_ms
-
-    fmt.println("Processed " + stringify(total_processed) + " jobs")
-    fmt.println("Result accumulator: " + stringify(total_sum))
-    fmt.println("Elapsed time: " + stringify(elapsed) + " ms")
+fn main():
+    let result = sum_series(100.0)

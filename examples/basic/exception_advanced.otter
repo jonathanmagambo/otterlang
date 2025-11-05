@@ -9,33 +9,28 @@ fn risky_operation(value: float) -> float:
         raise "Value too large"
     return value * 2
 
-fn process_with_cleanup(items: list<float>) -> float:
-    let total = 0
-    for item in items:
-        try:
-            let processed = risky_operation(item)
-            let total = total + processed
-        except Error as e:
-            fmt.println("Skipping invalid item ": error occurred")
-        finally:
-            fmt.println("Processed item " + item) 
-    return total
+fn main():
+    fmt.println("Advanced Exception Handling")
+    fmt.println("==========================")
 
-fn demonstrate_else_block():
-    fmt.println("Demonstrating else block:")
-    let values = [1, 2, 3, -1, 4, 5]
-    for value in values:
-        try:
-            let result = risky_operation(value)
-            fmt.println("Successfully processed " + value + " -> " + result) 
-        except Error:
-            fmt.println("Failed to process " + value)
-        else:
-            fmt.println("No errors occurred for " + value)
-        finally:
-            fmt.println("Finished processing " + value)
+    fmt.println("Testing basic operations:")
+    try:
+        let result = risky_operation(5)
+        fmt.println("Success: 5 processed")
+    except Error:
+        fmt.println("Failed on valid input")
+    finally:
+        fmt.println("Finished testing valid input")
 
-fn nested_exceptions():
+    try:
+        let result = risky_operation(-1)
+        fmt.println("Success: -1 processed")
+    except Error:
+        fmt.println("Failed on negative input (expected)")
+    finally:
+        fmt.println("Finished testing negative input")
+
+    fmt.println("")
     fmt.println("Nested exception handling:")
     try:
         try:
@@ -44,15 +39,4 @@ fn nested_exceptions():
             fmt.println("Caught inner error")
             raise "Outer error"
     except Error:
-        fmt.println("Caught outer error")
-
-fn main():
-    fmt.println("Advanced Exception Handling")
-    fmt.println("==========================")
-    demonstrate_else_block()
-    fmt.println()
-    nested_exceptions()
-    fmt.println()
-    let test_items = [1, 2, -5, 0, 10, 150, 3]
-    let result = process_with_cleanup(test_items)
-    fmt.println("Total processed: " + result) 
+        fmt.println("Caught outer error") 

@@ -1,0 +1,5 @@
+fn add(x: float, y: float) -> float:
+    return x + y
+
+fn main():
+    let result = add(5.0, 3.0)

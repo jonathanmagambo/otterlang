@@ -333,6 +333,141 @@ void otter_free_string(char* ptr) {
     if (ptr) free(ptr);
 }
 
+bool otter_error_push_context() {
+    // Simple stub - always succeeds
+    return true;
+}
+
+bool otter_error_pop_context() {
+    // Simple stub - always succeeds
+    return true;
+}
+
+bool otter_error_raise(const char* message_ptr, size_t message_len) {
+    if (message_ptr && message_len > 0) {
+        // Print error message to stderr
+        fprintf(stderr, "Exception: %.*sn", (int)message_len, message_ptr);
+    } else {
+        fprintf(stderr, "Exception raisedn");
+    }
+    // For now, just print and continue - full exception handling needs stack unwinding
+    return true;
+}
+
+bool otter_error_clear() {
+    // Simple stub - always succeeds
+    return true;
+}
+
+char* otter_error_get_message() {
+    // Simple stub - return empty string
+    char* result = (char*)malloc(1);
+    if (result) result[0] = '0';
+    return result;
+}
+
+bool otter_error_has_error() {
+    // Simple stub - no error state tracking yet
+    return false;
+}
+
+void otter_error_rethrow() {
+    // Simple stub - do nothing
+}
+
+
+char* otter_builtin_stringify_int(int64_t value) {
+    char* buffer = (char*)malloc(32);
+    if (buffer) {
+        snprintf(buffer, 32, "%lld", (long long)value);
+    }
+    return buffer;
+}
+
+char* otter_builtin_stringify_float(double value) {
+    char* buffer = (char*)malloc(64);
+    if (buffer) {
+        int len = snprintf(buffer, 64, "%.9f", value);
+        if (len > 0) {
+            char* p = buffer + len - 1;
+            while (p > buffer && *p == '0') {
+                *p = '0';
+                p--;
+            }
+            if (p > buffer && *p == '.') *p = '0';
+        }
+    }
+    return buffer;
+}
+
+char* otter_builtin_stringify_bool(int value) {
+    char* buffer = (char*)malloc(6);
+    if (buffer) {
+        strcpy(buffer, value ? "true" : "false");
+    }
+    return buffer;
+}
+
+
+void otter_std_fmt_println(const char* msg) {
+    if (!msg) {
+        printf("n");
+        return;
+    }
+    char* normalized = otter_normalize_text(msg);
+    if (normalized) {
+        printf("%sn", normalized);
+        free(normalized);
+    }
+}
+
+void otter_std_fmt_print(const char* msg) {
+    if (!msg) return;
+    char* normalized = otter_normalize_text(msg);
+    if (normalized) {
+        printf("%s", normalized);
+        fflush(stdout);
+        free(normalized);
+    }
+}
+
+void otter_std_fmt_eprintln(const char* msg) {
+    if (!msg) {
+        fprintf(stderr, "n");
+        return;
+    }
+    char* normalized = otter_normalize_text(msg);
+    if (normalized) {
+        fprintf(stderr, "%sn", normalized);
+        free(normalized);
+    }
+}
+
+char* otter_std_fmt_stringify_float(double value) {
+    char* buffer = (char*)malloc(64);
+    if (buffer) {
+        int len = snprintf(buffer, 64, "%.9f", value);
+        if (len > 0) {
+            char* p = buffer + len - 1;
+            while (p > buffer && *p == '0') {
+                *p = '0';
+                p--;
+            }
+            if (p > buffer && *p == '.') *p = '0';
+        }
+    }
+    return buffer;
+}
+
+char* otter_std_fmt_stringify_int(int64_t value) {
+    char* buffer = (char*)malloc(32);
+    if (buffer) {
+        snprintf(buffer, 32, "%lld", (long long)value);
+    }
+    return buffer;
+}
+
+
 int otter_validate_utf8(const char* ptr) {
     if (!ptr) return 0;
     while (*ptr) {

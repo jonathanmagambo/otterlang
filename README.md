@@ -6,7 +6,7 @@
       <img src="https://github.com/jonathanmagambo/otterlang/blob/main/image.png?raw=true" width="400" alt="OtterLang Logo" />
     </picture>
     <br>
-    <strong>Simple like Python, fast with Rust, and everything in between.</strong>
+    <strong>Simple syntax, native performance, transparent Rust FFI.</strong>
 </p>
 
 [![Build Status](https://github.com/jonathanmagambo/otterlang/workflows/CI/badge.svg)](https://github.com/jonathanmagambo/otterlang/actions)
@@ -19,7 +19,7 @@ An indentation-sensitive programming language with an LLVM backend. OtterLang co
 | Feature | OtterLang | Nim |
 |---------|-----------|-----|
 | **Transparent Rust FFI** | ✅ Auto-extracts entire public API | ❌ Manual bindings required |
-| **Indentation-based Syntax** | ✅ Clean, Python-like | ✅ Similar |
+| **Indentation-based Syntax** | ✅ Clean and readable | ✅ Similar |
 | **LLVM Backend** | ✅ Native code generation | ✅ Also uses LLVM |
 | **Memory Management** | ✅ Automatic GC + profiling | ✅ GC available |
 | **Zero-cost Abstractions** | ✅ Direct LLVM compilation | ✅ Good |
@@ -43,8 +43,10 @@ cd otterlang
 
 # Create your first program
 cat > hello.otter << 'EOF'
-def main:
-    print("Hello from OtterLang!")
+use otter:fmt
+
+fn main():
+    fmt.println("Hello from OtterLang!")
 EOF
 
 # Run it
@@ -82,35 +84,38 @@ cargo install --path . --bin otter
 
 ### Syntax
 
-Indentation-based syntax (like Python). Uses `def` for functions:
+Clean indentation-based syntax with modern features:
 
 ```otter
-def greet(name: string) -> string:
-    return f"Hello, {name}!"
+use otter:fmt
+use otter:math
+
+fn greet(name: str) -> str:
+    return "Hello, " + name + "!"
 
 struct Point:
     x: float
     y: float
-    
-    def distance(self) -> float:
+
+    fn distance(self) -> float:
         return math.sqrt(self.x * self.x + self.y * self.y)
 
-def main:
-    message = greet("World")
-    print(message)
-    
-    # Pythonic struct initialization and methods
-    p = Point(x=3.0, y=4.0)
-    dist = p.distance()
-    print(f"Point: ({p.x}, {p.y}), distance: {dist}")
-    
+fn main():
+    let message = greet("World")
+    fmt.println(message)
+
+    # Struct initialization and methods
+    let p = Point(x=3.0, y=4.0)
+    let dist = p.distance()
+    fmt.println("Point: (" + stringify(p.x) + ", " + stringify(p.y) + "), distance: " + stringify(dist))
+
     # Control flow
-    if message.len() > 10:
-        print("Long message")
-    
+    if len(message) > 10:
+        fmt.println("Long message")
+
     # Loops
     for i in 0..10:
-        print(i)
+        fmt.println(stringify(i))
 ```
 
 ### Transparent Rust FFI
@@ -119,14 +124,12 @@ Automatically use any Rust crate without manual configuration:
 
 ```otter
 use rust:rand
-use rust:serde_json
+use otter:fmt
 
-def main:
+fn main():
     # Auto-extracted from rustdoc JSON
-    random = rand.random_f64()
-    data = json.from_str("{\"key\": \"value\"}")
-    
-    print(f"Random: {random}")
+    let random = rand.random_f64()
+    fmt.println("Random: " + stringify(random))
 ```
 
 **Key advantages:**
@@ -152,38 +155,40 @@ Built-in modules:
 
 ### Exception Handling
 
-Python-style exception handling with zero-cost success path:
+Modern exception handling with zero-cost success path:
 
 ```otter
-fn divide(x: i32, y: i32) -> i32:
+use otter:fmt
+
+fn divide(x: int, y: int) -> int:
     if y == 0:
         raise "Division by zero"
     return x / y
 
-fn safe_operation:
+fn safe_operation():
     try:
-        result = divide(10, 0)
-        print("Result: " + result)
+        let result = divide(10, 0)
+        fmt.println("Result: " + stringify(result))
     except Error as e:
-        print("Caught error: " + e.message)
+        fmt.println("Caught error: " + stringify(e))
     else:
-        print("No errors occurred")
+        fmt.println("No errors occurred")
     finally:
-        print("Cleanup always runs")
+        fmt.println("Cleanup always runs")
 
-fn nested_exceptions:
+fn nested_exceptions():
     try:
         try:
             raise "Inner error"
         except Error:
-            print("Handled inner error")
+            fmt.println("Handled inner error")
             raise "Outer error"
     except Error:
-        print("Handled outer error")
+        fmt.println("Handled outer error")
 ```
 
 **Features:**
-- `try/except/else/finally` blocks (Python-compatible syntax)
+- `try/except/else/finally` blocks
 - Exception propagation with automatic cleanup
 - Zero-cost abstractions (no overhead on success path)
 - Type-safe error handling at compile time
@@ -203,28 +208,32 @@ Run `examples/benchmarks/benchmark.sh` to test yourself.
 ## CLI Commands
 
 ```bash
-otter run program.otter          # Run program
-otter build program.otter -o out   # Build executable
-otter fmt                          # Format code
-otter repl                         # Start REPL
-otter profile memory program.otter # Profile memory
+otterlang run program.otter          # Run program
+otterlang build program.otter -o out # Build executable
+otterlang fmt                        # Format code
+otterlang repl                       # Start REPL
+otterlang profile memory program.otter # Profile memory
 ```
 
 ## Examples
 
 **Basic Programs:**
+- `examples/basic/hello.otter` - Simple hello world example
 - `examples/basic/exception_basics.otter` - Basic exception handling
 - `examples/basic/exception_advanced.otter` - Advanced try/except/else/finally
 - `examples/basic/exception_resource.otter` - Resource management patterns
 - `examples/basic/exception_validation.otter` - Data validation with exceptions
-- `examples/basic/struct_methods_demo.otter` - Structs with methods (Pythonic)
-- `examples/basic/struct_demo.otter` - Pythonic struct initialization
-- `examples/basic/advanced_pipeline.otter` - Complex computation
-- `examples/basic/task_benchmark.otter` - Task concurrency
+- `examples/basic/struct_methods_demo.otter` - Factorial computation
+- `examples/basic/struct_demo.otter` - Distance calculation
+- `examples/basic/advanced_pipeline.otter` - Complex computation pipeline
+- `examples/basic/task_benchmark.otter` - Series summation
+- `examples/basic/arithmetic.otter` - Basic arithmetic
+- `examples/basic/fibonacci.otter` - Fibonacci sequence
+- `examples/basic/pythonic_demo.otter` - Power function
 
 **FFI Examples:**
-- `examples/ffi/ffi_rand_demo.otter` - Transparent FFI basics
-- `examples/ffi/ffi_rand_advanced.otter` - Advanced FFI usage
+- `examples/ffi/ffi_rand_demo.otter` - Algorithm examples
+- `examples/ffi/ffi_rand_advanced.otter` - Complex algorithms
 
 **Benchmarks:**
 - `examples/benchmarks/pi_leibniz.otter` - Performance comparison
