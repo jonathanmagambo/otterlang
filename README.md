@@ -36,12 +36,17 @@ An indentation-sensitive programming language with an LLVM backend. OtterLang co
 ## Quick Start
 
 ```bash
-# Clone and setup
 git clone https://github.com/jonathanmagambo/otterlang.git
 cd otterlang
+
+# Option 1: Using Nix (recommended)
+nix develop
+cargo build --release
+
+# Option 2: Using setup script
 ./setup.sh
 
-# Create your first program
+# Create and run your first program
 cat > hello.otter << 'EOF'
 use otter:fmt
 
@@ -49,36 +54,42 @@ fn main():
     fmt.println("Hello from OtterLang!")
 EOF
 
-# Run it
 otter run hello.otter
 ```
 
 ## Installation
 
-### Prerequisites
+### Using Nix (Recommended)
 
-Requires **LLVM 15**.
+```bash
+nix develop
+cargo build --release
+```
+
+The Nix flake automatically provides Rust nightly, LLVM 15, and all dependencies.
+
+### Manual Setup
+
+**Prerequisites:**
+- Rust (via rustup) - nightly required for FFI features
+- LLVM 15
 
 **macOS:**
 ```bash
 brew install llvm@15
 export LLVM_SYS_150_PREFIX=$(brew --prefix llvm@15)
 export PATH="$LLVM_SYS_150_PREFIX/bin:$PATH"
+./setup.sh
 ```
 
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get install -y llvm-15 llvm-15-dev clang-15
 export LLVM_SYS_150_PREFIX=/usr/lib/llvm-15
+./setup.sh
 ```
 
-**Manual Build:**
-```bash
-git clone https://github.com/jonathanmagambo/otterlang.git
-cd otterlang
-cargo build --release
-cargo install --path . --bin otter
-```
+The setup script automatically installs Rust nightly and configures the project.
 
 ## Language Features
 
@@ -104,16 +115,13 @@ fn main():
     let message = greet("World")
     fmt.println(message)
 
-    # Struct initialization and methods
     let p = Point(x=3.0, y=4.0)
     let dist = p.distance()
     fmt.println("Point: (" + stringify(p.x) + ", " + stringify(p.y) + "), distance: " + stringify(dist))
 
-    # Control flow
     if len(message) > 10:
         fmt.println("Long message")
 
-    # Loops
     for i in 0..10:
         fmt.println(stringify(i))
 ```
@@ -127,14 +135,13 @@ use rust:rand
 use otter:fmt
 
 fn main():
-    # Auto-extracted from rustdoc JSON
     let random = rand.random_f64()
     fmt.println("Random: " + stringify(random))
 ```
 
 **Key advantages:**
 - ✅ No manual bindings needed
-- ✅ Automatic API extraction via rustdoc
+- ✅ Automatic API extraction via rustdoc (requires Rust nightly)
 - ✅ Memory management handled automatically
 - ✅ Async/await support for Rust Futures
 - ✅ Type checking integrated
@@ -218,22 +225,23 @@ otterlang profile memory program.otter # Profile memory
 ## Examples
 
 **Basic Programs:**
-- `examples/basic/hello.otter` - Simple hello world example
-- `examples/basic/exception_basics.otter` - Basic exception handling
-- `examples/basic/exception_advanced.otter` - Advanced try/except/else/finally
-- `examples/basic/exception_resource.otter` - Resource management patterns
-- `examples/basic/exception_validation.otter` - Data validation with exceptions
-- `examples/basic/struct_methods_demo.otter` - Factorial computation
-- `examples/basic/struct_demo.otter` - Distance calculation
-- `examples/basic/advanced_pipeline.otter` - Complex computation pipeline
-- `examples/basic/task_benchmark.otter` - Series summation
-- `examples/basic/arithmetic.otter` - Basic arithmetic
+- `examples/basic/hello.otter` - Hello world
+- `examples/basic/exception_basics.otter` - Exception handling basics
+- `examples/basic/exception_advanced.otter` - Advanced exceptions
+- `examples/basic/exception_resource.otter` - Resource management
+- `examples/basic/exception_validation.otter` - Data validation
+- `examples/basic/struct_methods_demo.otter` - Struct methods
+- `examples/basic/struct_demo.otter` - Struct usage
+- `examples/basic/advanced_pipeline.otter` - Complex computation
+- `examples/basic/task_benchmark.otter` - Task benchmarks
+- `examples/basic/arithmetic.otter` - Arithmetic operations
 - `examples/basic/fibonacci.otter` - Fibonacci sequence
-- `examples/basic/pythonic_demo.otter` - Power function
+- `examples/basic/pythonic_demo.otter` - Pythonic style
+- `examples/basic/multiline_test.otter` - Multi-line strings
 
 **FFI Examples:**
-- `examples/ffi/ffi_rand_demo.otter` - Algorithm examples
-- `examples/ffi/ffi_rand_advanced.otter` - Complex algorithms
+- `examples/ffi/ffi_rand_demo.otter` - Random number generation
+- `examples/ffi/ffi_rand_advanced.otter` - Advanced FFI usage
 
 **Benchmarks:**
 - `examples/benchmarks/pi_leibniz.otter` - Performance comparison
@@ -248,7 +256,7 @@ otterlang profile memory program.otter # Profile memory
 - Type inference is limited (explicit types recommended)
 - Module system has some limitations
 - Windows support is experimental
-- Requires LLVM 15 specifically
+- Requires LLVM 15 and Rust nightly (for FFI features)
 
 ## Contributing
 
