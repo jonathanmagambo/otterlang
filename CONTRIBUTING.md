@@ -13,13 +13,45 @@ cargo build --release
 
 1. **Install prerequisites**:
    - Rust (via rustup) - nightly required for FFI features
-   - LLVM 18 (see [README.md](README.md) for installation instructions)
+   - LLVM 18
 
 2. **Setup**:
+
+   **macOS:**
    ```bash
+   brew install llvm@18
+   export LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)
+   export PATH="$LLVM_SYS_180_PREFIX/bin:$PATH"
    rustup toolchain install nightly
    rustup default nightly
-   export LLVM_SYS_180_PREFIX=/path/to/llvm-18  # Set based on your OS
+   cargo build --release
+   ```
+
+   **Ubuntu/Debian:**
+   ```bash
+   sudo apt-get install -y llvm-18 llvm-18-dev clang-18
+   export LLVM_SYS_180_PREFIX=/usr/lib/llvm-18
+   rustup toolchain install nightly
+   rustup default nightly
+   cargo build --release
+   ```
+
+   **Windows:**
+   ```powershell
+   # Install LLVM 18 using winget (recommended) or Chocolatey
+   winget install --id LLVM.LLVM --version 18.1.0 --silent --accept-package-agreements --accept-source-agreements
+   # Or using Chocolatey:
+   # choco install llvm -y
+
+   # Set environment variables (adjust path if LLVM is installed elsewhere)
+   $env:LLVM_SYS_180_PREFIX = "C:\Program Files\LLVM"
+   $env:Path = "$env:LLVM_SYS_180_PREFIX\bin;$env:Path"
+
+   # Install Rust nightly
+   rustup toolchain install nightly
+   rustup default nightly
+
+   # Build
    cargo build --release
    ```
 
