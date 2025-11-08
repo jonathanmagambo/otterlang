@@ -156,7 +156,7 @@ pub extern "C" fn otter_runtime_memory_profiler_leaks() -> *mut c_char {
 /// Set garbage collection strategy
 /// strategy: "rc", "mark-sweep", "hybrid", or "none"
 #[no_mangle]
-pub extern "C" fn otter_runtime_set_gc_strategy(strategy: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_runtime_set_gc_strategy(strategy: *const c_char) -> i32 {
     if strategy.is_null() {
         return 0;
     }
@@ -275,7 +275,7 @@ pub extern "C" fn otter_runtime_version() -> *mut c_char {
 
 /// Free a string returned by runtime functions
 #[no_mangle]
-pub extern "C" fn otter_runtime_free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn otter_runtime_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }

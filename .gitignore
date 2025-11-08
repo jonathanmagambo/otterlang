@@ -2,7 +2,6 @@
 /target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
 
 # IDE files
 .vscode/
@@ -52,4 +51,3 @@ ffi/*/target/
 
 # direnv
 .direnv/
-

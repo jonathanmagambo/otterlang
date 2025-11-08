@@ -32,35 +32,28 @@
         devShells.default =
           with pkgs;
           let
-            llvmPackages = if pkgs ? llvmPackages_18 then pkgs.llvmPackages_18 else if pkgs ? llvmPackages_17 then pkgs.llvmPackages_17 else pkgs.llvmPackages;
-            llvm_bin = llvmPackages.llvm;
-            llvm_libs = llvmPackages.libllvm;
-            rustToolchain = rust-bin.nightly.latest.default.override {
+            llvm = pkgs.llvmPackages_18;
+
+            rust_toolchain = (rust-bin.nightly.latest.default.override {
               extensions = [
                 "rust-src"
                 "rustc-codegen-cranelift-preview"
               ];
-            };
+            });
           in
           mkShell {
             buildInputs = [
-              rustToolchain
-              llvm_bin
-              llvm_libs
+              rust_toolchain
+              llvm.llvm
+              libffi
+              libxml2
             ]
             ++ lib.optionals (hasInfix "linux" system) [
               mold
             ];
 
-            shellHook = ''
-              export PATH="${rustToolchain}/bin:${llvmPackages.llvm}/bin:$PATH"
-            '';
-
-            RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-
-            LLVM_SYS_180_PREFIX = if llvmPackages == pkgs.llvmPackages_18 then "${llvmPackages.llvm}" else if llvmPackages == pkgs.llvmPackages_17 then "${llvmPackages.llvm}" else "${llvmPackages.llvm}";
-            LD_LIBRARY_PATH = "${llvmPackages.llvm}/lib";
-            LIBRARY_PATH = "${llvmPackages.llvm}/lib";
+            RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+            LLVM_SYS_180_PREFIX="${llvm.llvm}";
 
             RUSTFLAGS =
               "-Zshare-generics=y" + lib.optionalString (hasInfix "linux" system) " -Clink-arg=-fuse-ld=mold";

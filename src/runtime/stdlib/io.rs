@@ -34,7 +34,7 @@ static BUFFERS: Lazy<RwLock<std::collections::HashMap<HandleId, Buffer>>> =
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_print(message: *const c_char) {
+pub unsafe extern "C" fn otter_std_io_print(message: *const c_char) {
     if message.is_null() {
         return;
     }
@@ -49,7 +49,7 @@ pub extern "C" fn otter_std_io_print(message: *const c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_println(message: *const c_char) {
+pub unsafe extern "C" fn otter_std_io_println(message: *const c_char) {
     if message.is_null() {
         println!();
         return;
@@ -79,7 +79,7 @@ pub extern "C" fn otter_std_io_read_line() -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn otter_std_io_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -89,7 +89,7 @@ pub extern "C" fn otter_std_io_free_string(ptr: *mut c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_read(path: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_std_io_read(path: *const c_char) -> *mut c_char {
     if path.is_null() {
         return std::ptr::null_mut();
     }
@@ -106,7 +106,7 @@ pub extern "C" fn otter_std_io_read(path: *const c_char) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_write(path: *const c_char, data: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_write(path: *const c_char, data: *const c_char) -> i32 {
     if path.is_null() || data.is_null() {
         return 0;
     }
@@ -122,7 +122,7 @@ pub extern "C" fn otter_std_io_write(path: *const c_char, data: *const c_char) -
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_copy(src: *const c_char, dst: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_copy(src: *const c_char, dst: *const c_char) -> i32 {
     if src.is_null() || dst.is_null() {
         return 0;
     }
@@ -138,7 +138,7 @@ pub extern "C" fn otter_std_io_copy(src: *const c_char, dst: *const c_char) -> i
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_lines(path: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_io_lines(path: *const c_char) -> u64 {
     if path.is_null() {
         return 0;
     }
@@ -185,7 +185,7 @@ pub extern "C" fn otter_std_io_lines(path: *const c_char) -> u64 {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_buffer(data: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_io_buffer(data: *const c_char) -> u64 {
     let id = next_handle_id();
     let buffer = if data.is_null() {
         Buffer {
@@ -240,7 +240,7 @@ pub extern "C" fn otter_std_io_buffer_read(handle: u64, n: i64) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_buffer_write(handle: u64, bytes: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_buffer_write(handle: u64, bytes: *const c_char) -> i32 {
     if bytes.is_null() {
         return 0;
     }
@@ -287,7 +287,7 @@ pub extern "C" fn otter_std_io_buffer_data(handle: u64) -> *mut c_char {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_exists(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_exists(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -300,7 +300,7 @@ pub extern "C" fn otter_std_io_exists(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_mkdir(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_mkdir(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -312,7 +312,7 @@ pub extern "C" fn otter_std_io_mkdir(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_rmdir(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_rmdir(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -324,7 +324,7 @@ pub extern "C" fn otter_std_io_rmdir(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_remove(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_remove(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -336,7 +336,7 @@ pub extern "C" fn otter_std_io_remove(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
     if path.is_null() {
         return 0;
     }
@@ -371,7 +371,7 @@ pub extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_is_file(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_is_file(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -388,7 +388,7 @@ pub extern "C" fn otter_std_io_is_file(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_is_dir(path: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_io_is_dir(path: *const c_char) -> i32 {
     if path.is_null() {
         return 0;
     }
@@ -405,7 +405,7 @@ pub extern "C" fn otter_std_io_is_dir(path: *const c_char) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_io_file_size(path: *const c_char) -> i64 {
+pub unsafe extern "C" fn otter_std_io_file_size(path: *const c_char) -> i64 {
     if path.is_null() {
         return -1;
     }

@@ -35,7 +35,7 @@ pub extern "C" fn otter_format_bool(value: bool) -> *mut c_char {
 
 /// Concatenate two strings
 #[no_mangle]
-pub extern "C" fn otter_concat_strings(s1: *const c_char, s2: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_concat_strings(s1: *const c_char, s2: *const c_char) -> *mut c_char {
     if s1.is_null() || s2.is_null() {
         return std::ptr::null_mut();
     }
@@ -59,7 +59,7 @@ pub extern "C" fn otter_concat_strings(s1: *const c_char, s2: *const c_char) -> 
 
 /// Free a string allocated by Otter runtime
 #[no_mangle]
-pub extern "C" fn otter_free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn otter_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
     }
@@ -70,7 +70,7 @@ pub extern "C" fn otter_free_string(ptr: *mut c_char) {
 
 /// Validate UTF-8 string (returns 1 if valid, 0 if invalid)
 #[no_mangle]
-pub extern "C" fn otter_validate_utf8(ptr: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_validate_utf8(ptr: *const c_char) -> i32 {
     if ptr.is_null() {
         return 0;
     }
@@ -85,7 +85,7 @@ pub extern "C" fn otter_validate_utf8(ptr: *const c_char) -> i32 {
 
 /// Create a string from a string literal (makes a copy)
 #[no_mangle]
-pub extern "C" fn otter_string_from_literal(ptr: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_string_from_literal(ptr: *const c_char) -> *mut c_char {
     if ptr.is_null() {
         return std::ptr::null_mut();
     }
@@ -152,11 +152,13 @@ inventory::submit! {
 
 #[cfg(test)]
 mod tests {
+    use std::f64;
+
     use super::*;
 
     #[test]
     fn test_format_float() {
-        let result = otter_format_float(3.141592653589793);
+        let result = otter_format_float(f64::consts::PI);
         assert!(!result.is_null());
         unsafe {
             let s = CStr::from_ptr(result).to_str().unwrap();
@@ -180,7 +182,7 @@ mod tests {
     fn test_concat_strings() {
         let s1 = CString::new("Hello ").unwrap();
         let s2 = CString::new("World").unwrap();
-        let result = otter_concat_strings(s1.as_ptr(), s2.as_ptr());
+        let result = unsafe { otter_concat_strings(s1.as_ptr(), s2.as_ptr()) };
         assert!(!result.is_null());
         unsafe {
             let s = CStr::from_ptr(result).to_str().unwrap();
@@ -192,6 +194,6 @@ mod tests {
     #[test]
     fn test_validate_utf8() {
         let valid = CString::new("Hello 🦦").unwrap();
-        assert_eq!(otter_validate_utf8(valid.as_ptr()), 1);
+        assert_eq!(unsafe { otter_validate_utf8(valid.as_ptr()) }, 1);
     }
 }

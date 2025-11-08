@@ -188,7 +188,7 @@ pub extern "C" fn otter_task_channel_float() -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_task_send_string(handle: u64, value: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_task_send_string(handle: u64, value: *const c_char) -> i32 {
     if value.is_null() {
         return 0;
     }

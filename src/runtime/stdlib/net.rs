@@ -145,7 +145,7 @@ fn run_http_request(method: &str, url: &str, body: Option<&str>) -> HttpResponse
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_net_listen(addr: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_net_listen(addr: *const c_char) -> u64 {
     if addr.is_null() {
         return 0;
     }
@@ -165,7 +165,7 @@ pub extern "C" fn otter_std_net_listen(addr: *const c_char) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_net_dial(addr: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_net_dial(addr: *const c_char) -> u64 {
     if addr.is_null() {
         return 0;
     }
@@ -191,7 +191,7 @@ pub extern "C" fn otter_std_net_dial(addr: *const c_char) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_net_send(conn: u64, data: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_std_net_send(conn: u64, data: *const c_char) -> i32 {
     if data.is_null() {
         return 0;
     }
@@ -250,7 +250,7 @@ pub extern "C" fn otter_std_net_close(conn: u64) {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_net_http_get(url: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_net_http_get(url: *const c_char) -> u64 {
     if url.is_null() {
         return 0;
     }
@@ -266,7 +266,7 @@ pub extern "C" fn otter_std_net_http_get(url: *const c_char) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_net_http_post(url: *const c_char, body: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_net_http_post(url: *const c_char, body: *const c_char) -> u64 {
     if url.is_null() {
         return 0;
     }

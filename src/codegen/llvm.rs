@@ -920,7 +920,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
             let alloca = self
                 .builder
-                .build_alloca(self.basic_type(param_ty)?, &param.name);
+                .build_alloca(self.basic_type(param_ty)?, &param.name)?;
             self.builder.build_store(alloca, param_value);
             ctx.insert(
                 param.name.clone(),
@@ -1052,7 +1052,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 int_val,
                                 self.context.i64_type(),
                                 "coerce_i32_to_i64",
-                            );
+                            )?;
                             eval = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
                         }
                         (OtterType::F64, OtterType::I64) | (OtterType::F64, OtterType::I32) => {
@@ -1065,7 +1065,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 int_val,
                                 self.context.f64_type(),
                                 "coerce_int_to_f64",
-                            );
+                            )?;
                             eval = EvaluatedValue::with_value(float_val.into(), OtterType::F64);
                         }
                         _ => {
@@ -1095,7 +1095,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     } else {
                         self.builder.position_at_end(entry_block);
                     }
-                    let alloca = self.builder.build_alloca(ty, &name);
+                    let alloca = self.builder.build_alloca(ty, &name)?;
 
                     if let Some(block) = current_block {
                         self.builder.position_at_end(block);
@@ -1181,7 +1181,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "start_to_float",
-                                )
+                                )?
                             };
                             let end = if end_val.ty == OtterType::F64 {
                                 end_val
@@ -1197,7 +1197,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "end_to_float",
-                                )
+                                )?
                             };
                             (start.into(), end.into(), OtterType::F64, true)
                         }
@@ -1214,7 +1214,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                     // Allocate loop variable
                     let loop_var_type = self.basic_type(loop_ty)?;
-                    let loop_var_ptr = self.builder.build_alloca(loop_var_type, var);
+                    let loop_var_ptr = self.builder.build_alloca(loop_var_type, var)?;
                     self.builder.build_store(loop_var_ptr, start_num);
                     ctx.insert(
                         var.clone(),
@@ -1229,9 +1229,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                     // Loop header: check condition
                     self.builder.position_at_end(loop_header);
-                    let current = self
-                        .builder
-                        .build_load(loop_var_type, loop_var_ptr, "current");
+                    let current =
+                        self.builder
+                            .build_load(loop_var_type, loop_var_ptr, "current")?;
 
                     let cond = if is_float {
                         self.builder.build_float_compare(
@@ -1247,7 +1247,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             end_num.into_int_value(),
                             "loop_cond",
                         )
-                    };
+                    }?;
                     self.builder
                         .build_conditional_branch(cond, loop_body, loop_end);
 
@@ -1258,18 +1258,18 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     }
 
                     // Increment loop variable
-                    let current = self
-                        .builder
-                        .build_load(loop_var_type, loop_var_ptr, "current");
+                    let current =
+                        self.builder
+                            .build_load(loop_var_type, loop_var_ptr, "current")?;
                     let next: BasicValueEnum = if is_float {
                         let one = self.context.f64_type().const_float(1.0);
                         self.builder
-                            .build_float_add(current.into_float_value(), one, "next")
+                            .build_float_add(current.into_float_value(), one, "next")?
                             .into()
                     } else {
                         let one = self.context.i64_type().const_int(1, false);
                         self.builder
-                            .build_int_add(current.into_int_value(), one, "next")
+                            .build_int_add(current.into_int_value(), one, "next")?
                             .into()
                     };
                     self.builder.build_store(loop_var_ptr, next);
@@ -1363,7 +1363,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     float_val,
                                     self.context.i32_type(),
                                     "coerce_f64_to_i32",
-                                );
+                                )?;
                                 int_val.into()
                             }
                             (OtterType::I64, OtterType::F64) => {
@@ -1372,7 +1372,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     float_val,
                                     self.context.i64_type(),
                                     "coerce_f64_to_i64",
-                                );
+                                )?;
                                 int_val.into()
                             }
                             (OtterType::F64, OtterType::I32) => {
@@ -1381,7 +1381,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "coerce_i32_to_f64",
-                                );
+                                )?;
                                 float_val.into()
                             }
                             (OtterType::F64, OtterType::I64) => {
@@ -1390,7 +1390,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "coerce_i64_to_f64",
-                                );
+                                )?;
                                 float_val.into()
                             }
                             (OtterType::I64, OtterType::I32) => {
@@ -1399,7 +1399,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.i64_type(),
                                     "coerce_i32_to_i64",
-                                );
+                                )?;
                                 ext_val.into()
                             }
                             _ => value,
@@ -1440,7 +1440,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 int_val,
                                 self.context.i64_type(),
                                 "coerce_i32_to_i64",
-                            );
+                            )?;
                             eval = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
                         }
                         // Allow F64 assigned to F64 var (no change needed)
@@ -1454,7 +1454,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 int_val,
                                 self.context.f64_type(),
                                 "coerce_int_to_f64",
-                            );
+                            )?;
                             eval = EvaluatedValue::with_value(float_val.into(), OtterType::F64);
                         }
                         _ => {
@@ -1605,9 +1605,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                 // Return the function pointer as an i64 (cast the function pointer)
                 let func_ptr = lambda_function.as_global_value().as_pointer_value();
-                let int_ptr =
-                    self.builder
-                        .build_ptr_to_int(func_ptr, self.context.i64_type(), "lambda_ptr");
+                let int_ptr = self.builder.build_ptr_to_int(
+                    func_ptr,
+                    self.context.i64_type(),
+                    "lambda_ptr",
+                )?;
 
                 Ok(EvaluatedValue {
                     ty: OtterType::I64, // Function pointers are i64
@@ -1620,7 +1622,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             Expr::Array(elements) => {
                 let list_new = self.declare_symbol_function("list.new")?;
-                let list_call = self.builder.build_call(list_new, &[], "list_new_handle");
+                let list_call = self.builder.build_call(list_new, &[], "list_new_handle")?;
                 let handle_value = list_call
                     .try_as_basic_value()
                     .left()
@@ -1639,7 +1641,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             Expr::Dict(entries) => {
                 let map_new = self.declare_symbol_function("map.new")?;
-                let map_call = self.builder.build_call(map_new, &[], "map_new_handle");
+                let map_call = self.builder.build_call(map_new, &[], "map_new_handle")?;
                 let handle_value = map_call
                     .try_as_basic_value()
                     .left()
@@ -1720,7 +1722,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let then_value = self.eval_expr(then_branch, ctx)?;
         let then_result_ptr = if let Some(value) = then_value.value {
             let result_type = self.basic_type(then_value.ty)?;
-            let result_ptr = self.builder.build_alloca(result_type, "then_result");
+            let result_ptr = self.builder.build_alloca(result_type, "then_result")?;
             self.builder.build_store(result_ptr, value);
             Some(result_ptr)
         } else {
@@ -1741,7 +1743,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         };
         let else_result_ptr = if let Some(value) = else_value.value {
             let result_type = self.basic_type(else_value.ty)?;
-            let result_ptr = self.builder.build_alloca(result_type, "else_result");
+            let result_ptr = self.builder.build_alloca(result_type, "else_result")?;
             self.builder.build_store(result_ptr, value);
             Some(result_ptr)
         } else {
@@ -1762,14 +1764,18 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
         if let (Some(then_ptr), Some(else_ptr)) = (then_result_ptr, else_result_ptr) {
             let result_type = self.basic_type(then_value.ty)?;
-            let phi = self.builder.build_phi(result_type, "if_result");
+            let phi = self.builder.build_phi(result_type, "if_result")?;
             phi.add_incoming(&[
                 (
-                    &self.builder.build_load(result_type, then_ptr, "then_load"),
+                    &self
+                        .builder
+                        .build_load(result_type, then_ptr, "then_load")?,
                     then_bb,
                 ),
                 (
-                    &self.builder.build_load(result_type, else_ptr, "else_load"),
+                    &self
+                        .builder
+                        .build_load(result_type, else_ptr, "else_load")?,
                     else_bb,
                 ),
             ]);
@@ -1793,7 +1799,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
     ) -> Result<EvaluatedValue<'ctx>> {
         if let Some(variable) = ctx.get(name) {
             let ty = self.basic_type(variable.ty)?;
-            let loaded = self.builder.build_load(ty, variable.ptr, name);
+            let loaded = self.builder.build_load(ty, variable.ptr, name)?;
             Ok(EvaluatedValue::with_value(loaded, variable.ty))
         } else {
             bail!("unknown identifier `{name}`");
@@ -1818,7 +1824,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 .into_int_value();
             let ext_val =
                 self.builder
-                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64");
+                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64")?;
             left_value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
         }
         if right_value.ty == OtterType::I32 {
@@ -1828,7 +1834,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 .into_int_value();
             let ext_val =
                 self.builder
-                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64");
+                    .build_int_s_extend(int_val, self.context.i64_type(), "i32toi64")?;
             right_value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
         }
 
@@ -1842,7 +1848,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 int_val,
                 self.context.f64_type(),
                 "inttofloat",
-            );
+            )?;
             left_value = EvaluatedValue::with_value(float_val.into(), OtterType::F64);
         } else if left_value.ty == OtterType::F64 && right_value.ty == OtterType::I64 {
             let int_val = right_value
@@ -1853,7 +1859,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 int_val,
                 self.context.f64_type(),
                 "inttofloat",
-            );
+            )?;
             right_value = EvaluatedValue::with_value(float_val.into(), OtterType::F64);
         }
 
@@ -1886,18 +1892,24 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .into_int_value();
 
                 let result = match op {
-                    BinaryOp::Add => self.builder.build_int_add(lhs, rhs, "addtmp").into(),
-                    BinaryOp::Sub => self.builder.build_int_sub(lhs, rhs, "subtmp").into(),
-                    BinaryOp::Mul => self.builder.build_int_mul(lhs, rhs, "multmp").into(),
-                    BinaryOp::Div => self.builder.build_int_signed_div(lhs, rhs, "divtmp").into(),
-                    BinaryOp::Mod => self.builder.build_int_signed_rem(lhs, rhs, "modtmp").into(),
+                    BinaryOp::Add => self.builder.build_int_add(lhs, rhs, "addtmp")?.into(),
+                    BinaryOp::Sub => self.builder.build_int_sub(lhs, rhs, "subtmp")?.into(),
+                    BinaryOp::Mul => self.builder.build_int_mul(lhs, rhs, "multmp")?.into(),
+                    BinaryOp::Div => self
+                        .builder
+                        .build_int_signed_div(lhs, rhs, "divtmp")?
+                        .into(),
+                    BinaryOp::Mod => self
+                        .builder
+                        .build_int_signed_rem(lhs, rhs, "modtmp")?
+                        .into(),
                     BinaryOp::Eq => {
                         let cmp = self.builder.build_int_compare(
                             inkwell::IntPredicate::EQ,
                             lhs,
                             rhs,
                             "eqtmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Ne => {
@@ -1906,7 +1918,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "netmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Lt => {
@@ -1915,7 +1927,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "lttmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::LtEq => {
@@ -1924,7 +1936,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "letmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Gt => {
@@ -1933,7 +1945,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "gttmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::GtEq => {
@@ -1942,7 +1954,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "getmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::And | BinaryOp::Or => {
@@ -1965,18 +1977,18 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .into_float_value();
 
                 let result = match op {
-                    BinaryOp::Add => self.builder.build_float_add(lhs, rhs, "addtmp").into(),
-                    BinaryOp::Sub => self.builder.build_float_sub(lhs, rhs, "subtmp").into(),
-                    BinaryOp::Mul => self.builder.build_float_mul(lhs, rhs, "multmp").into(),
-                    BinaryOp::Div => self.builder.build_float_div(lhs, rhs, "divtmp").into(),
-                    BinaryOp::Mod => self.builder.build_float_rem(lhs, rhs, "modtmp").into(),
+                    BinaryOp::Add => self.builder.build_float_add(lhs, rhs, "addtmp")?.into(),
+                    BinaryOp::Sub => self.builder.build_float_sub(lhs, rhs, "subtmp")?.into(),
+                    BinaryOp::Mul => self.builder.build_float_mul(lhs, rhs, "multmp")?.into(),
+                    BinaryOp::Div => self.builder.build_float_div(lhs, rhs, "divtmp")?.into(),
+                    BinaryOp::Mod => self.builder.build_float_rem(lhs, rhs, "modtmp")?.into(),
                     BinaryOp::Eq => {
                         let cmp = self.builder.build_float_compare(
                             inkwell::FloatPredicate::OEQ,
                             lhs,
                             rhs,
                             "eqtmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Ne => {
@@ -1985,7 +1997,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "neqtmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Lt => {
@@ -1994,7 +2006,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "lttmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::Gt => {
@@ -2003,7 +2015,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "gttmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::LtEq => {
@@ -2012,7 +2024,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "letmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::GtEq => {
@@ -2021,7 +2033,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             rhs,
                             "getmp",
-                        );
+                        )?;
                         return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
                     }
                     BinaryOp::And => {
@@ -2031,14 +2043,15 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             self.context.f64_type().const_float(0.0),
                             "lhs_bool",
-                        );
+                        )?;
                         let rhs_bool = self.builder.build_float_compare(
                             inkwell::FloatPredicate::ONE,
                             rhs,
                             self.context.f64_type().const_float(0.0),
                             "rhs_bool",
-                        );
-                        let and_result = self.builder.build_and(lhs_bool, rhs_bool, "and_result");
+                        )?;
+                        let and_result =
+                            self.builder.build_and(lhs_bool, rhs_bool, "and_result")?;
                         return Ok(EvaluatedValue::with_value(
                             and_result.into(),
                             OtterType::Bool,
@@ -2051,14 +2064,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             lhs,
                             self.context.f64_type().const_float(0.0),
                             "lhs_bool",
-                        );
+                        )?;
                         let rhs_bool = self.builder.build_float_compare(
                             inkwell::FloatPredicate::ONE,
                             rhs,
                             self.context.f64_type().const_float(0.0),
                             "rhs_bool",
-                        );
-                        let or_result = self.builder.build_or(lhs_bool, rhs_bool, "or_result");
+                        )?;
+                        let or_result = self.builder.build_or(lhs_bool, rhs_bool, "or_result")?;
                         return Ok(EvaluatedValue::with_value(
                             or_result.into(),
                             OtterType::Bool,
@@ -2091,7 +2104,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .value
                     .ok_or_else(|| anyhow!("missing value"))?
                     .into_float_value();
-                let neg = self.builder.build_float_neg(float_val, "negtmp");
+                let neg = self.builder.build_float_neg(float_val, "negtmp")?;
                 Ok(EvaluatedValue::with_value(neg.into(), OtterType::F64))
             }
             crate::ast::nodes::UnaryOp::Not => {
@@ -2102,7 +2115,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .value
                     .ok_or_else(|| anyhow!("missing value"))?
                     .into_int_value();
-                let not = self.builder.build_not(bool_val, "nottmp");
+                let not = self.builder.build_not(bool_val, "nottmp")?;
                 Ok(EvaluatedValue::with_value(not.into(), OtterType::Bool))
             }
         }
@@ -2119,7 +2132,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             match full_name.as_str() {
                 "time.now" => {
                     let function = self.declare_symbol_function("std.time.now")?;
-                    let call = self.builder.build_call(function, &[], "call_time_now");
+                    let call = self.builder.build_call(function, &[], "call_time_now")?;
                     let value = call
                         .try_as_basic_value()
                         .left()
@@ -2132,7 +2145,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 int_val,
                                 self.context.f64_type(),
                                 "int_to_float",
-                            )
+                            )?
                             .into()
                     } else if value.is_float_value() {
                         value
@@ -2148,7 +2161,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             function,
                             &[],
                             &format!("call_{}", full_name.replace(':', "_").replace('.', "_")),
-                        );
+                        )?;
                         let return_ty: OtterType = symbol.signature.result.into();
                         let value = match return_ty {
                             OtterType::Unit => None,
@@ -2175,7 +2188,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             Literal::String(value) => {
                 // Use a more descriptive name for string literals to help with debugging
                 let global_name = format!("str_lit_{}", value.len());
-                let global = self.builder.build_global_string_ptr(value, &global_name);
+                let global = self.builder.build_global_string_ptr(value, &global_name)?;
                 Ok(EvaluatedValue::with_value(
                     global.as_pointer_value().into(),
                     OtterType::Str,
@@ -2266,7 +2279,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "coerce_i64_to_f64",
-                                );
+                                )?;
                                 value =
                                     EvaluatedValue::with_value(float_val.into(), OtterType::F64);
                             }
@@ -2280,7 +2293,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.f64_type(),
                                     "coerce_i32_to_f64",
-                                );
+                                )?;
                                 value =
                                     EvaluatedValue::with_value(float_val.into(), OtterType::F64);
                             }
@@ -2294,7 +2307,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.i64_type(),
                                     "coerce_i32_to_i64",
-                                );
+                                )?;
                                 value = EvaluatedValue::with_value(ext_val.into(), OtterType::I64);
                             }
                             (OtterType::Opaque, OtterType::I64) => {
@@ -2312,7 +2325,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.i64_type(),
                                     "coerce_i32_to_opaque",
-                                );
+                                )?;
                                 value =
                                     EvaluatedValue::with_value(ext_val.into(), OtterType::Opaque);
                             }
@@ -2327,7 +2340,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     float_val,
                                     self.context.i64_type(),
                                     "coerce_f64_to_i64",
-                                );
+                                )?;
                                 value = EvaluatedValue::with_value(int_val.into(), OtterType::I64);
                             }
                             (OtterType::I32, OtterType::F64) => {
@@ -2341,7 +2354,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     float_val,
                                     self.context.i32_type(),
                                     "coerce_f64_to_i32",
-                                );
+                                )?;
                                 value = EvaluatedValue::with_value(int_val.into(), OtterType::I32);
                             }
                             (OtterType::Opaque, OtterType::F64) => {
@@ -2355,7 +2368,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     float_val,
                                     self.context.i64_type(),
                                     "coerce_f64_to_opaque",
-                                );
+                                )?;
                                 value =
                                     EvaluatedValue::with_value(int_val.into(), OtterType::Opaque);
                             }
@@ -2372,7 +2385,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 }
 
                 let call_name = format!("call_{}", symbol_name.replace('.', "_").replace(':', "_"));
-                let call = self.builder.build_call(function, &lowered_args, &call_name);
+                let call = self
+                    .builder
+                    .build_call(function, &lowered_args, &call_name)?;
                 let return_ty: OtterType = symbol.signature.result.into();
                 let value = match return_ty {
                     OtterType::Unit => None,
@@ -2450,7 +2465,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             let await_fn =
                                 self.declare_symbol_function(&format!("{}_await", base))?;
                             let arg = self.value_to_metadata(&spawn_val)?;
-                            let call = self.builder.build_call(await_fn, &[arg], "await_call");
+                            let call = self.builder.build_call(await_fn, &[arg], "await_call")?;
                             let ret_ty: OtterType = await_symbol.signature.result.into();
                             let value = match ret_ty {
                                 OtterType::Unit => None,
@@ -2542,7 +2557,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             float_val,
                             self.context.i64_type(),
                             "float_to_int",
-                        );
+                        )?;
                         value = EvaluatedValue::with_value(int_val.into(), OtterType::I64);
                     } else if expected_llvm_ty.is_float_type() && value.ty == OtterType::I64 {
                         let int_val = value
@@ -2553,7 +2568,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             int_val,
                             self.context.f64_type(),
                             "int_to_float",
-                        );
+                        )?;
                         value = EvaluatedValue::with_value(float_val.into(), OtterType::F64);
                     }
                 }
@@ -2563,7 +2578,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
             let call = self
                 .builder
-                .build_call(function, &lowered_args, &format!("call_{name}"));
+                .build_call(function, &lowered_args, &format!("call_{name}"))?;
 
             let return_type = fn_type.get_return_type();
 
@@ -2640,9 +2655,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             (OtterType::I32, Some(val)) => {
                 let int_val = val.into_int_value();
-                let extended =
-                    self.builder
-                        .build_int_s_extend(int_val, self.context.i64_type(), "i32_to_i64");
+                let extended = self.builder.build_int_s_extend(
+                    int_val,
+                    self.context.i64_type(),
+                    "i32_to_i64",
+                )?;
                 let append_fn = self.declare_symbol_function("append<list,int>")?;
                 self.builder
                     .build_call(append_fn, &[handle.into(), extended.into()], "");
@@ -2703,9 +2720,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             (OtterType::I32, Some(val)) => {
                 let int_val = val.into_int_value();
-                let extended =
-                    self.builder
-                        .build_int_s_extend(int_val, self.context.i64_type(), "i32_to_i64");
+                let extended = self.builder.build_int_s_extend(
+                    int_val,
+                    self.context.i64_type(),
+                    "i32_to_i64",
+                )?;
                 let set_fn = self.declare_symbol_function("set<map,int>")?;
                 self.builder
                     .build_call(set_fn, &[handle.into(), key_arg, extended.into()], "");
@@ -2780,7 +2799,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     getter,
                     &[handle.into(), index.into()],
                     "list_get_bool",
-                );
+                )?;
                 let raw = call
                     .try_as_basic_value()
                     .left()
@@ -2795,7 +2814,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                         raw,
                         zero,
                         "bool_cast",
-                    )
+                    )?
                 };
                 Ok(EvaluatedValue::with_value(bool_val.into(), OtterType::Bool))
             }
@@ -2805,7 +2824,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     getter,
                     &[handle.into(), index.into()],
                     "list_get_float",
-                );
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2814,9 +2833,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             TypeInfo::I32 | TypeInfo::I64 => {
                 let getter = self.declare_symbol_function("list.get_int")?;
-                let call =
-                    self.builder
-                        .build_call(getter, &[handle.into(), index.into()], "list_get_int");
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_int",
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2825,9 +2846,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             TypeInfo::Str => {
                 let getter = self.declare_symbol_function("list.get")?;
-                let call =
-                    self.builder
-                        .build_call(getter, &[handle.into(), index.into()], "list_get_str");
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_str",
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2840,7 +2863,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     getter,
                     &[handle.into(), index.into()],
                     "list_get_list",
-                );
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2849,9 +2872,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             TypeInfo::Dict { .. } => {
                 let getter = self.declare_symbol_function("list.get_map")?;
-                let call =
-                    self.builder
-                        .build_call(getter, &[handle.into(), index.into()], "list_get_map");
+                let call = self.builder.build_call(
+                    getter,
+                    &[handle.into(), index.into()],
+                    "list_get_map",
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2864,7 +2889,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     getter,
                     &[handle.into(), index.into()],
                     "list_get_unknown",
-                );
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2881,7 +2906,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     getter,
                     &[handle.into(), index.into()],
                     "list_get_other",
-                );
+                )?;
                 let value = call
                     .try_as_basic_value()
                     .left()
@@ -2904,7 +2929,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                         raw,
                         zero,
                         "bool_cast",
-                    ))
+                    )?)
                 }
             }
             (OtterType::I64, Some(val)) => {
@@ -2915,7 +2940,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     int_val,
                     zero,
                     "bool_cast",
-                ))
+                )?)
             }
             (OtterType::F64, Some(val)) => {
                 let float_val = val.into_float_value();
@@ -2925,7 +2950,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     float_val,
                     zero,
                     "bool_cast",
-                ))
+                )?)
             }
             _ => bail!("expression does not evaluate to a boolean"),
         }
@@ -2949,7 +2974,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             .into_int_value();
 
         let list_new = self.declare_symbol_function("list.new")?;
-        let list_call = self.builder.build_call(list_new, &[], "list_comp_new");
+        let list_call = self.builder.build_call(list_new, &[], "list_comp_new")?;
         let result_handle = list_call
             .try_as_basic_value()
             .left()
@@ -2957,9 +2982,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             .into_int_value();
 
         let len_fn = self.declare_symbol_function("len<list>")?;
-        let len_call = self
-            .builder
-            .build_call(len_fn, &[iterable_handle.into()], "list_comp_len");
+        let len_call =
+            self.builder
+                .build_call(len_fn, &[iterable_handle.into()], "list_comp_len")?;
         let len_value = len_call
             .try_as_basic_value()
             .left()
@@ -2968,7 +2993,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
         let index_alloca = self
             .builder
-            .build_alloca(self.context.i64_type(), "list_comp_index");
+            .build_alloca(self.context.i64_type(), "list_comp_index")?;
         self.builder
             .build_store(index_alloca, self.context.i64_type().const_int(0, false));
 
@@ -2985,7 +3010,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let previous_var = ctx.remove(var);
         let var_alloca = self
             .builder
-            .build_alloca(var_basic, &format!("{}_elem", var));
+            .build_alloca(var_basic, &format!("{}_elem", var))?;
         ctx.insert(
             var.to_string(),
             Variable {
@@ -3024,20 +3049,20 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         self.builder.position_at_end(header_bb);
         let current_index = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx")
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx")?
             .into_int_value();
         let cond = self.builder.build_int_compare(
             inkwell::IntPredicate::ULT,
             current_index,
             len_value,
             "list_comp_cond",
-        );
+        )?;
         self.builder.build_conditional_branch(cond, body_bb, end_bb);
 
         self.builder.position_at_end(body_bb);
         let loop_index = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "list_comp_loop_idx")
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_loop_idx")?
             .into_int_value();
         let element_value =
             self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
@@ -3061,13 +3086,13 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         self.builder.position_at_end(incr_bb);
         let idx_val = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx_val")
+            .build_load(self.context.i64_type(), index_alloca, "list_comp_idx_val")?
             .into_int_value();
         let next_idx = self.builder.build_int_add(
             idx_val,
             self.context.i64_type().const_int(1, false),
             "list_comp_next_idx",
-        );
+        )?;
         self.builder.build_store(index_alloca, next_idx);
         self.builder.build_unconditional_branch(header_bb);
 
@@ -3104,7 +3129,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             .into_int_value();
 
         let map_new = self.declare_symbol_function("map.new")?;
-        let map_call = self.builder.build_call(map_new, &[], "dict_comp_new");
+        let map_call = self.builder.build_call(map_new, &[], "dict_comp_new")?;
         let result_handle = map_call
             .try_as_basic_value()
             .left()
@@ -3112,9 +3137,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             .into_int_value();
 
         let len_fn = self.declare_symbol_function("len<list>")?;
-        let len_call = self
-            .builder
-            .build_call(len_fn, &[iterable_handle.into()], "dict_comp_len");
+        let len_call =
+            self.builder
+                .build_call(len_fn, &[iterable_handle.into()], "dict_comp_len")?;
         let len_value = len_call
             .try_as_basic_value()
             .left()
@@ -3123,7 +3148,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
         let index_alloca = self
             .builder
-            .build_alloca(self.context.i64_type(), "dict_comp_index");
+            .build_alloca(self.context.i64_type(), "dict_comp_index")?;
         self.builder
             .build_store(index_alloca, self.context.i64_type().const_int(0, false));
 
@@ -3140,7 +3165,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let previous_var = ctx.remove(var);
         let var_alloca = self
             .builder
-            .build_alloca(var_basic, &format!("{}_elem", var));
+            .build_alloca(var_basic, &format!("{}_elem", var))?;
         ctx.insert(
             var.to_string(),
             Variable {
@@ -3179,20 +3204,20 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         self.builder.position_at_end(header_bb);
         let current_index = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx")
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx")?
             .into_int_value();
         let cond = self.builder.build_int_compare(
             inkwell::IntPredicate::ULT,
             current_index,
             len_value,
             "dict_comp_cond",
-        );
+        )?;
         self.builder.build_conditional_branch(cond, body_bb, end_bb);
 
         self.builder.position_at_end(body_bb);
         let loop_index = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "dict_comp_loop_idx")
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_loop_idx")?
             .into_int_value();
         let element_value =
             self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
@@ -3217,13 +3242,13 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         self.builder.position_at_end(incr_bb);
         let idx_val = self
             .builder
-            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx_val")
+            .build_load(self.context.i64_type(), index_alloca, "dict_comp_idx_val")?
             .into_int_value();
         let next_idx = self.builder.build_int_add(
             idx_val,
             self.context.i64_type().const_int(1, false),
             "dict_comp_next_idx",
-        );
+        )?;
         self.builder.build_store(index_alloca, next_idx);
         self.builder.build_unconditional_branch(header_bb);
 
@@ -3256,7 +3281,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let function = self.declare_symbol_function(&full_name)?;
         let call = self
             .builder
-            .build_call(function, args, &format!("call_{}", name));
+            .build_call(function, args, &format!("call_{}", name))?;
         let value = call.try_as_basic_value().left().unwrap_or_else(|| {
             // If no return value, return unit
             self.context.const_struct(&[], false).into()
@@ -3276,7 +3301,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         // Create a global string constant for the message
-        let string_value = self.builder.build_global_string_ptr(message, "error_msg");
+        let string_value = self.builder.build_global_string_ptr(message, "error_msg")?;
         let string_ptr = string_value.as_pointer_value();
         let len_value = self
             .context
@@ -3365,7 +3390,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         // Start with empty string
         let mut result_ptr = self
             .builder
-            .build_global_string_ptr("", "empty_str")
+            .build_global_string_ptr("", "empty_str")?
             .as_pointer_value();
         let mut need_free_result = false;
 
@@ -3374,7 +3399,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 FStringPart::Text(text) => {
                     let text_ptr = self
                         .builder
-                        .build_global_string_ptr(text, &format!("fstr_text_{}", idx))
+                        .build_global_string_ptr(text, &format!("fstr_text_{}", idx))?
                         .as_pointer_value();
                     let new_result = self
                         .builder
@@ -3382,7 +3407,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             concat_fn,
                             &[result_ptr.into(), text_ptr.into()],
                             &format!("concat_{}", idx),
-                        )
+                        )?
                         .try_as_basic_value()
                         .left()
                         .unwrap()
@@ -3412,7 +3437,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     format_float_fn,
                                     &[float_val.into()],
                                     &format!("format_float_{}", idx),
-                                )
+                                )?
                                 .try_as_basic_value()
                                 .left()
                                 .unwrap()
@@ -3429,7 +3454,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     int_val,
                                     self.context.i64_type(),
                                     "extend_to_i64",
-                                )
+                                )?
                             } else {
                                 int_val
                             };
@@ -3438,7 +3463,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     format_int_fn,
                                     &[int64_val.into()],
                                     &format!("format_int_{}", idx),
-                                )
+                                )?
                                 .try_as_basic_value()
                                 .left()
                                 .unwrap()
@@ -3454,7 +3479,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                     format_bool_fn,
                                     &[bool_val.into()],
                                     &format!("format_bool_{}", idx),
-                                )
+                                )?
                                 .try_as_basic_value()
                                 .left()
                                 .unwrap()
@@ -3474,7 +3499,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                             concat_fn,
                             &[result_ptr.into(), formatted_ptr.into()],
                             &format!("concat_expr_{}", idx),
-                        )
+                        )?
                         .try_as_basic_value()
                         .left()
                         .unwrap()
@@ -3737,24 +3762,24 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         }
 
         // Early optimization passes - run these first for better analysis
-        pass_manager.add_type_based_alias_analysis_pass();
-        pass_manager.add_scoped_no_alias_aa_pass();
-        pass_manager.add_basic_alias_analysis_pass();
+        // pass_manager.add_type_based_alias_analysis_pass();
+        // pass_manager.add_scoped_no_alias_aa_pass();
+        // pass_manager.add_basic_alias_analysis_pass();
 
         // Memory and data flow optimizations
-        pass_manager.add_memcpy_optimize_pass();
-        pass_manager.add_dead_store_elimination_pass();
+        // pass_manager.add_memcpy_optimize_pass();
+        // pass_manager.add_dead_store_elimination_pass();
 
         // Arithmetic and instruction optimizations
-        pass_manager.add_instruction_combining_pass();
-        pass_manager.add_reassociate_pass();
-        pass_manager.add_gvn_pass();
-        pass_manager.add_cfg_simplification_pass();
-        pass_manager.add_instruction_simplify_pass();
+        // pass_manager.add_instruction_combining_pass();
+        // pass_manager.add_reassociate_pass();
+        // pass_manager.add_gvn_pass();
+        // pass_manager.add_cfg_simplification_pass();
+        // pass_manager.add_instruction_simplify_pass();
 
         // Function-level optimizations with enhanced inlining
         // Configure inlining based on threshold and optimization level
-        pass_manager.add_function_inlining_pass();
+        // pass_manager.add_function_inlining_pass();
         // Note: inkwell's API doesn't expose threshold configuration directly
         // In practice, the optimization level influences inlining aggressiveness
 
@@ -3763,33 +3788,33 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             // Aggressive inlining is already handled by optimization level
         }
 
-        pass_manager.add_constant_merge_pass();
-        pass_manager.add_merge_functions_pass();
+        // pass_manager.add_constant_merge_pass();
+        // pass_manager.add_merge_functions_pass();
 
         // Control flow optimizations
-        pass_manager.add_tail_call_elimination_pass();
+        // pass_manager.add_tail_call_elimination_pass();
 
         // Advanced analysis-based optimizations
-        pass_manager.add_sccp_pass(); // Sparse Conditional Constant Propagation
-        pass_manager.add_aggressive_dce_pass(); // Aggressive Dead Code Elimination
-        pass_manager.add_licm_pass(); // Loop-Invariant Code Motion
-        pass_manager.add_loop_deletion_pass();
+        // pass_manager.add_sccp_pass(); // Sparse Conditional Constant Propagation
+        // pass_manager.add_aggressive_dce_pass(); // Aggressive Dead Code Elimination
+        // pass_manager.add_licm_pass(); // Loop-Invariant Code Motion
+        // pass_manager.add_loop_deletion_pass();
 
         if matches!(level, CodegenOptLevel::Default) {
             // Additional optimizations for default level
-            pass_manager.add_promote_memory_to_register_pass();
-            pass_manager.add_dead_store_elimination_pass();
+            // pass_manager.add_promote_memory_to_register_pass();
+            // pass_manager.add_dead_store_elimination_pass();
         }
 
         if matches!(level, CodegenOptLevel::Aggressive) {
             // Most aggressive optimizations for release mode
-            pass_manager.add_loop_unroll_pass();
-            pass_manager.add_loop_vectorize_pass();
-            pass_manager.add_slp_vectorize_pass(); // Superword-Level Parallelism
+            // pass_manager.add_loop_unroll_pass();
+            // pass_manager.add_loop_vectorize_pass();
+            // pass_manager.add_slp_vectorize_pass(); // Superword-Level Parallelism
 
             // Inter-procedural optimizations
-            pass_manager.add_ipsccp_pass();
-            pass_manager.add_global_optimizer_pass();
+            // pass_manager.add_ipsccp_pass();
+            // pass_manager.add_global_optimizer_pass();
         }
 
         // PGO-based optimizations (if profile file provided)

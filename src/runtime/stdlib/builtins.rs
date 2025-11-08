@@ -135,7 +135,7 @@ thread_local! {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_len_string(s: *const c_char) -> i64 {
+pub unsafe extern "C" fn otter_builtin_len_string(s: *const c_char) -> i64 {
     if s.is_null() {
         return 0;
     }
@@ -183,7 +183,7 @@ pub extern "C" fn otter_builtin_cap_list(handle: u64) -> i64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_cap_string(s: *const c_char) -> i64 {
+pub unsafe extern "C" fn otter_builtin_cap_string(s: *const c_char) -> i64 {
     if s.is_null() {
         return 0;
     }
@@ -202,7 +202,7 @@ pub extern "C" fn otter_builtin_cap_string(s: *const c_char) -> i64 {
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_append_list_string(handle: u64, val: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_builtin_append_list_string(handle: u64, val: *const c_char) -> i32 {
     if val.is_null() {
         return 0;
     }
@@ -278,7 +278,7 @@ pub extern "C" fn otter_builtin_append_list_map(handle: u64, value_handle: u64) 
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_delete_map(handle: u64, key: *const c_char) -> i32 {
+pub unsafe extern "C" fn otter_builtin_delete_map(handle: u64, key: *const c_char) -> i32 {
     if key.is_null() {
         return 0;
     }
@@ -400,7 +400,7 @@ pub extern "C" fn otter_builtin_list_get(handle: u64, index: i64) -> *mut c_char
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get(handle: u64, key: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_builtin_map_get(handle: u64, key: *const c_char) -> *mut c_char {
     if key.is_null() {
         return std::ptr::null_mut();
     }
@@ -475,7 +475,7 @@ pub extern "C" fn otter_builtin_list_get_map(handle: u64, index: i64) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set(
+pub unsafe extern "C" fn otter_builtin_map_set(
     handle: u64,
     key: *const c_char,
     value: *const c_char,
@@ -498,7 +498,7 @@ pub extern "C" fn otter_builtin_map_set(
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get_int(handle: u64, key: *const c_char) -> i64 {
+pub unsafe extern "C" fn otter_builtin_map_get_int(handle: u64, key: *const c_char) -> i64 {
     if key.is_null() {
         return 0;
     }
@@ -518,7 +518,7 @@ pub extern "C" fn otter_builtin_map_get_int(handle: u64, key: *const c_char) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get_float(handle: u64, key: *const c_char) -> f64 {
+pub unsafe extern "C" fn otter_builtin_map_get_float(handle: u64, key: *const c_char) -> f64 {
     if key.is_null() {
         return 0.0;
     }
@@ -538,7 +538,7 @@ pub extern "C" fn otter_builtin_map_get_float(handle: u64, key: *const c_char) -
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get_bool(handle: u64, key: *const c_char) -> bool {
+pub unsafe extern "C" fn otter_builtin_map_get_bool(handle: u64, key: *const c_char) -> bool {
     if key.is_null() {
         return false;
     }
@@ -552,7 +552,7 @@ pub extern "C" fn otter_builtin_map_get_bool(handle: u64, key: *const c_char) ->
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get_list(handle: u64, key: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_builtin_map_get_list(handle: u64, key: *const c_char) -> u64 {
     if key.is_null() {
         return 0;
     }
@@ -564,7 +564,7 @@ pub extern "C" fn otter_builtin_map_get_list(handle: u64, key: *const c_char) ->
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_get_map(handle: u64, key: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_builtin_map_get_map(handle: u64, key: *const c_char) -> u64 {
     if key.is_null() {
         return 0;
     }
@@ -576,7 +576,11 @@ pub extern "C" fn otter_builtin_map_get_map(handle: u64, key: *const c_char) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set_int(handle: u64, key: *const c_char, value: i64) -> i32 {
+pub unsafe extern "C" fn otter_builtin_map_set_int(
+    handle: u64,
+    key: *const c_char,
+    value: i64,
+) -> i32 {
     if key.is_null() {
         return 0;
     }
@@ -593,7 +597,11 @@ pub extern "C" fn otter_builtin_map_set_int(handle: u64, key: *const c_char, val
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set_float(handle: u64, key: *const c_char, value: f64) -> i32 {
+pub unsafe extern "C" fn otter_builtin_map_set_float(
+    handle: u64,
+    key: *const c_char,
+    value: f64,
+) -> i32 {
     if key.is_null() {
         return 0;
     }
@@ -610,7 +618,11 @@ pub extern "C" fn otter_builtin_map_set_float(handle: u64, key: *const c_char, v
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set_bool(handle: u64, key: *const c_char, value: bool) -> i32 {
+pub unsafe extern "C" fn otter_builtin_map_set_bool(
+    handle: u64,
+    key: *const c_char,
+    value: bool,
+) -> i32 {
     if key.is_null() {
         return 0;
     }
@@ -627,7 +639,7 @@ pub extern "C" fn otter_builtin_map_set_bool(handle: u64, key: *const c_char, va
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set_list(
+pub unsafe extern "C" fn otter_builtin_map_set_list(
     handle: u64,
     key: *const c_char,
     value_handle: u64,
@@ -648,7 +660,7 @@ pub extern "C" fn otter_builtin_map_set_list(
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_map_set_map(
+pub unsafe extern "C" fn otter_builtin_map_set_map(
     handle: u64,
     key: *const c_char,
     value_handle: u64,
@@ -673,7 +685,7 @@ pub extern "C" fn otter_builtin_map_set_map(
 // ============================================================================
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_panic(msg: *const c_char) {
+pub unsafe extern "C" fn otter_builtin_panic(msg: *const c_char) {
     let message = if msg.is_null() {
         "panic: unknown error".to_string()
     } else {
@@ -983,7 +995,7 @@ pub extern "C" fn otter_builtin_stringify_bool(value: bool) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_stringify_string(s: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_builtin_stringify_string(s: *const c_char) -> *mut c_char {
     if s.is_null() {
         return std::ptr::null_mut();
     }
@@ -1056,7 +1068,7 @@ pub struct SelectCase {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_builtin_select(
+pub unsafe extern "C" fn otter_builtin_select(
     cases: *const SelectCase,
     num_cases: i64,
     default_available: bool,

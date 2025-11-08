@@ -124,7 +124,7 @@ pub extern "C" fn otter_std_math_randi(max: i64) -> i64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_math_mean(arr: *const f64, len: i64) -> f64 {
+pub unsafe extern "C" fn otter_std_math_mean(arr: *const f64, len: i64) -> f64 {
     if arr.is_null() || len <= 0 {
         return 0.0;
     }
@@ -137,7 +137,7 @@ pub extern "C" fn otter_std_math_mean(arr: *const f64, len: i64) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_math_std(arr: *const f64, len: i64) -> f64 {
+pub unsafe extern "C" fn otter_std_math_std(arr: *const f64, len: i64) -> f64 {
     if arr.is_null() || len <= 0 {
         return 0.0;
     }
@@ -151,7 +151,7 @@ pub extern "C" fn otter_std_math_std(arr: *const f64, len: i64) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_math_sum(arr: *const f64, len: i64) -> f64 {
+pub unsafe extern "C" fn otter_std_math_sum(arr: *const f64, len: i64) -> f64 {
     if arr.is_null() || len <= 0 {
         return 0.0;
     }

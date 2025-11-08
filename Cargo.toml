@@ -1,3 +1,5 @@
+cargo-features = ["codegen-backend"]
+
 [package]
 name = "otterlang"
 version = "0.1.0"
@@ -39,7 +41,7 @@ glob = "0.3"
 once_cell = "1.19"
 inventory = "0.3"
 indicatif = "0.17"
-inkwell = { version = "0.3", features = ["llvm18-0"] }
+inkwell = { version = "0.x", features = ["llvm18-1"] }
 libloading = "0.8"
 libm = "0.2"
 libc = "0.2"

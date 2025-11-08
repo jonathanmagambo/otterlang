@@ -1464,6 +1464,7 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
 mod tests {
     use super::*;
     use crate::ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
+    use std::f64;
 
     #[test]
     fn test_type_inference_literal() {
@@ -1473,7 +1474,7 @@ mod tests {
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
 
-        let expr = Expr::Literal(Literal::Number(NumberLiteral::new(3.14, true)));
+        let expr = Expr::Literal(Literal::Number(NumberLiteral::new(f64::consts::PI, true)));
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
     }

@@ -142,7 +142,7 @@ pub extern "C" fn otter_std_time_since(t: u64) -> u64 {
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_time_format(t: u64, fmt: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn otter_std_time_format(t: u64, fmt: *const c_char) -> *mut c_char {
     if fmt.is_null() {
         return std::ptr::null_mut();
     }
@@ -172,7 +172,7 @@ pub extern "C" fn otter_std_time_format(t: u64, fmt: *const c_char) -> *mut c_ch
 }
 
 #[no_mangle]
-pub extern "C" fn otter_std_time_parse(fmt: *const c_char, text: *const c_char) -> u64 {
+pub unsafe extern "C" fn otter_std_time_parse(fmt: *const c_char, text: *const c_char) -> u64 {
     if fmt.is_null() || text.is_null() {
         return 0;
     }
