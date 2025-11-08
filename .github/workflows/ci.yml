@@ -44,16 +44,18 @@ jobs:
       
       - name: Install LLVM 18.1 (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1"
+          directory: ${{ runner.temp }}/llvm-18
+
+      - name: Configure LLVM environment (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-
-          Write-Host "Installing LLVM 18.1 with Chocolatey..."
-          choco install llvm --version=18.1.8 -y --allow-downgrade --no-progress
-
-          $llvmPath = Join-Path $env:ProgramFiles "LLVM"
-          if (-not (Test-Path $llvmPath)) {
-            throw "LLVM was not installed to the expected location: $llvmPath"
+          $llvmPath = $env:LLVM_PATH
+          if (-not $llvmPath) {
+            throw "LLVM_PATH was not provided by KyleMayes/install-llvm-action"
           }
 
           Write-Host "LLVM installed at: $llvmPath"
