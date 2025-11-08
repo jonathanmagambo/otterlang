@@ -14,25 +14,6 @@
 
 An indentation-sensitive programming language with an LLVM backend. OtterLang compiles to native binaries with a focus on simplicity and performance.
 
-## Why OtterLang?
-
-| Feature | OtterLang | Nim |
-|---------|-----------|-----|
-| **Transparent Rust FFI** | ✅ Auto-extracts entire public API | ❌ Manual bindings required |
-| **Indentation-based Syntax** | ✅ Clean and readable | ✅ Similar |
-| **LLVM Backend** | ✅ Native code generation | ✅ Also uses LLVM |
-| **Memory Management** | ✅ Automatic GC + profiling | ✅ GC available |
-| **Zero-cost Abstractions** | ✅ Direct LLVM compilation | ✅ Good |
-| **Type Inference** | ✅ Full inference | ✅ Advanced |
-| **Async/Await** | ✅ Built-in task system | ✅ Async/await |
-| **Cross-compilation** | ✅ WASM, embedded targets | ✅ Good support |
-| **REPL** | ✅ Interactive development | ❌ Limited |
-| **Code Formatting** | ✅ Built-in formatter | ✅ Built-in |
-| **Memory Profiling** | ✅ Built-in profiler | ❌ External tools |
-| **Rust Ecosystem Access** | ✅ Transparent bridging | ❌ Manual bindings |
-| **Compilation Speed** | ✅ Fast (LLVM) | ✅ Fast |
-| **Runtime Performance** | ✅ Near C speed (1.28x) | ✅ Near C speed |
-
 ## Quick Start
 
 ```bash
