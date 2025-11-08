@@ -1,6 +1,6 @@
-use crate::ast::nodes::Program;
 use crate::runtime::symbol_registry::SymbolRegistry;
 use anyhow::Result;
+use ast::nodes::Program;
 
 use super::engine::JitEngine;
 

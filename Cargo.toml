@@ -25,6 +25,7 @@ default = []
 task-runtime = []
 
 [dependencies]
+ast.path = "crates/ast"
 common.path = "crates/common"
 utils.path = "crates/utils"
 lexer.path = "crates/lexer"

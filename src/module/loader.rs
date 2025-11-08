@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::ast::nodes::Program;
 use crate::module::resolver::ModuleResolver;
 use crate::parser::parse;
+use ast::nodes::Program;
 use lexer::tokenize;
 
 /// Represents a loaded module with its exports
@@ -113,22 +113,22 @@ impl ModuleLoader {
 
         for statement in &program.statements {
             match statement {
-                crate::ast::nodes::Statement::Function(function) => {
+                ast::nodes::Statement::Function(function) => {
                     if function.public {
                         exports.add_function(function.name.clone());
                     }
                 }
-                crate::ast::nodes::Statement::Let { name, public, .. } => {
+                ast::nodes::Statement::Let { name, public, .. } => {
                     if *public {
                         exports.add_constant(name.clone());
                     }
                 }
-                crate::ast::nodes::Statement::Struct { name, public, .. } => {
+                ast::nodes::Statement::Struct { name, public, .. } => {
                     if *public {
                         exports.add_type(name.clone());
                     }
                 }
-                crate::ast::nodes::Statement::TypeAlias { name, public, .. } => {
+                ast::nodes::Statement::TypeAlias { name, public, .. } => {
                     if *public {
                         exports.add_type(name.clone());
                     }

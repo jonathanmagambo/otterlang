@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
-use crate::ast::nodes::{Block, Expr, Function, Literal, Program, Statement};
 use crate::runtime::symbol_registry::{FfiType, SymbolRegistry};
 use crate::typecheck::types::{TypeContext, TypeError, TypeInfo};
+use ast::nodes::{Block, Expr, Function, Literal, Program, Statement};
 
 /// Type checker that validates and infers types in OtterLang programs
 pub struct TypeChecker {
@@ -362,9 +362,9 @@ impl TypeChecker {
 
     /// Extract generic type parameter names from a type
     #[allow(dead_code)]
-    fn extract_generic_params(&self, ty: &crate::ast::nodes::Type, params: &mut Vec<String>) {
+    fn extract_generic_params(&self, ty: &ast::nodes::Type, params: &mut Vec<String>) {
         match ty {
-            crate::ast::nodes::Type::Simple(name) => {
+            ast::nodes::Type::Simple(name) => {
                 // Check if this looks like a generic parameter (single uppercase letter or common generic names)
                 // In OtterLang, generic parameters are typically single uppercase letters (T, U, etc.)
                 if name.len() == 1 && name.chars().next().unwrap().is_uppercase() {
@@ -373,7 +373,7 @@ impl TypeChecker {
                     }
                 }
             }
-            crate::ast::nodes::Type::Generic { base, args } => {
+            ast::nodes::Type::Generic { base, args } => {
                 // Check if base is a generic parameter
                 if base.len() == 1 && base.chars().next().unwrap().is_uppercase() {
                     if !params.contains(base) {
@@ -618,17 +618,17 @@ impl TypeChecker {
                     let right_type = self.infer_expr_type(right)?;
 
                     match op {
-                        crate::ast::nodes::BinaryOp::Add
-                        | crate::ast::nodes::BinaryOp::Sub
-                        | crate::ast::nodes::BinaryOp::Mul
-                        | crate::ast::nodes::BinaryOp::Div => {
+                        ast::nodes::BinaryOp::Add
+                        | ast::nodes::BinaryOp::Sub
+                        | ast::nodes::BinaryOp::Mul
+                        | ast::nodes::BinaryOp::Div => {
                             // Numeric operations
                             match (&left_type, &right_type) {
                                 (TypeInfo::F64, _) | (_, TypeInfo::F64) => Ok(TypeInfo::F64),
                                 (TypeInfo::I64, _) | (_, TypeInfo::I64) => Ok(TypeInfo::I64),
                                 (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
                                 (TypeInfo::Str, TypeInfo::Str)
-                                    if matches!(op, crate::ast::nodes::BinaryOp::Add) =>
+                                    if matches!(op, ast::nodes::BinaryOp::Add) =>
                                 {
                                     Ok(TypeInfo::Str)
                                 }
@@ -643,12 +643,12 @@ impl TypeChecker {
                                 }
                             }
                         }
-                        crate::ast::nodes::BinaryOp::Eq
-                        | crate::ast::nodes::BinaryOp::Ne
-                        | crate::ast::nodes::BinaryOp::Lt
-                        | crate::ast::nodes::BinaryOp::LtEq
-                        | crate::ast::nodes::BinaryOp::Gt
-                        | crate::ast::nodes::BinaryOp::GtEq => {
+                        ast::nodes::BinaryOp::Eq
+                        | ast::nodes::BinaryOp::Ne
+                        | ast::nodes::BinaryOp::Lt
+                        | ast::nodes::BinaryOp::LtEq
+                        | ast::nodes::BinaryOp::Gt
+                        | ast::nodes::BinaryOp::GtEq => {
                             // Comparison operations return bool
                             if left_type.is_compatible_with(&right_type) {
                                 Ok(TypeInfo::Bool)
@@ -661,7 +661,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        crate::ast::nodes::BinaryOp::Is | crate::ast::nodes::BinaryOp::IsNot => {
+                        ast::nodes::BinaryOp::Is | ast::nodes::BinaryOp::IsNot => {
                             // Identity comparison allows matching types or comparisons with None
                             let allow = left_type.is_compatible_with(&right_type)
                                 || right_type.is_compatible_with(&left_type)
@@ -681,7 +681,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        crate::ast::nodes::BinaryOp::And | crate::ast::nodes::BinaryOp::Or => {
+                        ast::nodes::BinaryOp::And | ast::nodes::BinaryOp::Or => {
                             // Logical operations require bool operands
                             if left_type.is_compatible_with(&TypeInfo::Bool)
                                 && right_type.is_compatible_with(&TypeInfo::Bool)
@@ -696,7 +696,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        crate::ast::nodes::BinaryOp::Mod => {
+                        ast::nodes::BinaryOp::Mod => {
                             // Modulo requires integer operands
                             match (&left_type, &right_type) {
                                 (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
@@ -716,7 +716,7 @@ impl TypeChecker {
                 Expr::Unary { op, expr } => {
                     let expr_type = self.infer_expr_type(expr)?;
                     match op {
-                        crate::ast::nodes::UnaryOp::Not => {
+                        ast::nodes::UnaryOp::Not => {
                             if expr_type.is_compatible_with(&TypeInfo::Bool) {
                                 Ok(TypeInfo::Bool)
                             } else {
@@ -727,7 +727,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        crate::ast::nodes::UnaryOp::Neg => {
+                        ast::nodes::UnaryOp::Neg => {
                             if expr_type.is_compatible_with(&TypeInfo::I32)
                                 || expr_type.is_compatible_with(&TypeInfo::I64)
                                 || expr_type.is_compatible_with(&TypeInfo::F64)
@@ -1005,7 +1005,7 @@ impl TypeChecker {
                     // F-strings always evaluate to strings
                     // Type check all embedded expressions
                     for part in parts {
-                        if let crate::ast::nodes::FStringPart::Expr(expr) = part {
+                        if let ast::nodes::FStringPart::Expr(expr) = part {
                             let _ = self.infer_expr_type(expr)?;
                             // We don't care about the type, just that it's valid
                         }
@@ -1463,7 +1463,7 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
+    use ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
     use std::f64;
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::ast::nodes::{Block, Expr, Function, Statement};
+use ast::nodes::{Block, Expr, Function, Statement};
 
 /// Inlines function calls for optimization
 pub struct Inliner {
@@ -48,7 +48,7 @@ impl Inliner {
     fn substitute_parameters(
         &self,
         block: &mut Block,
-        params: &[crate::ast::nodes::Param],
+        params: &[ast::nodes::Param],
         args: &[Expr],
     ) {
         // Simplified parameter substitution
@@ -61,7 +61,7 @@ impl Inliner {
     fn substitute_in_stmt(
         &self,
         stmt: &mut Statement,
-        params: &[crate::ast::nodes::Param],
+        params: &[ast::nodes::Param],
         args: &[Expr],
     ) {
         // Implementation would traverse AST and replace parameter references

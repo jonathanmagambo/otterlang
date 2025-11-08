@@ -1,10 +1,11 @@
 use chumsky::prelude::*;
 use chumsky::Stream;
 
-use crate::ast::nodes::{
+use ast::nodes::{
     BinaryOp, Block, ExceptHandler, Expr, FStringPart, Function, Literal, MatchArm, NumberLiteral,
     Param, Pattern, Program, Statement, Type, UnaryOp,
 };
+
 use common::Span;
 use lexer::token::{Token, TokenKind};
 use utils::errors::{Diagnostic, DiagnosticSeverity};

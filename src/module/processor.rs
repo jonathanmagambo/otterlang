@@ -2,8 +2,8 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::ast::nodes::{Program, Statement};
 use crate::module::{Module, ModuleLoader, ModulePath, ModuleResolver};
+use ast::nodes::{Program, Statement};
 
 /// Processes module imports and loads dependencies
 pub struct ModuleProcessor {

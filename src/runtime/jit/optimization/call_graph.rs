@@ -1,4 +1,4 @@
-use crate::ast::nodes::{Block, Expr, Function, Statement};
+use ast::nodes::{Block, Expr, Function, Statement};
 
 /// Builds call graph for optimization
 pub struct CallGraph {
@@ -12,7 +12,7 @@ impl CallGraph {
         }
     }
 
-    pub fn analyze_program(&mut self, program: &crate::ast::nodes::Program) {
+    pub fn analyze_program(&mut self, program: &ast::nodes::Program) {
         for function in program.functions() {
             self.analyze_function(function);
         }

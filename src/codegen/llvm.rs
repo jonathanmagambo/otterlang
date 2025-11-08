@@ -17,13 +17,13 @@ use inkwell::values::{
 use inkwell::AddressSpace;
 use inkwell::OptimizationLevel;
 
-use crate::ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
 use crate::codegen::target::TargetTriple;
 use crate::ffi::{BridgeSymbolRegistry, CargoBridge, DynamicLibraryLoader, FunctionSpec, TypeSpec};
 use crate::runtime::ffi;
 use crate::runtime::ffi::register_dynamic_exports;
 use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType, SymbolRegistry};
 use crate::typecheck::TypeInfo;
+use ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
 use libloading::Library;
 
 pub struct CodegenOptions {
@@ -2133,13 +2133,13 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
     fn eval_unary_expr(
         &mut self,
-        op: &crate::ast::nodes::UnaryOp,
+        op: &ast::nodes::UnaryOp,
         expr: &Expr,
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         let val = self.eval_expr(expr, ctx)?;
         match op {
-            crate::ast::nodes::UnaryOp::Neg => {
+            ast::nodes::UnaryOp::Neg => {
                 if val.ty != OtterType::F64 {
                     bail!("negation only supported for floats currently");
                 }
@@ -2150,7 +2150,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 let neg = self.builder.build_float_neg(float_val, "negtmp")?;
                 Ok(EvaluatedValue::with_value(neg.into(), OtterType::F64))
             }
-            crate::ast::nodes::UnaryOp::Not => {
+            ast::nodes::UnaryOp::Not => {
                 if val.ty != OtterType::Bool {
                     bail!("logical not only supported for booleans");
                 }
@@ -2493,8 +2493,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     return self
                         .eval_call(
                             &Expr::Identifier(await_name),
-                            &[Expr::Literal(crate::ast::nodes::Literal::Number(
-                                crate::ast::nodes::NumberLiteral::new(0.0, true),
+                            &[Expr::Literal(ast::nodes::Literal::Number(
+                                ast::nodes::NumberLiteral::new(0.0, true),
                             ))],
                             ctx,
                         )
@@ -3129,9 +3129,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let element_value =
             self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
         if let Some(value_basic) = element_value.value.clone() {
-        self.builder
-            .build_store(var_alloca, value_basic)
-            .expect("store comprehension value");
+            self.builder
+                .build_store(var_alloca, value_basic)
+                .expect("store comprehension value");
         }
 
         if let Some(cond_expr) = condition {
@@ -3298,9 +3298,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let element_value =
             self.load_list_element(&iterable_type_info, iterable_handle, loop_index)?;
         if let Some(value_basic) = element_value.value.clone() {
-        self.builder
-            .build_store(var_alloca, value_basic)
-            .expect("store list value");
+            self.builder
+                .build_store(var_alloca, value_basic)
+                .expect("store list value");
         }
 
         if let Some(cond_expr) = condition {
@@ -3457,10 +3457,10 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
     fn eval_fstring(
         &mut self,
-        parts: &[crate::ast::nodes::FStringPart],
+        parts: &[ast::nodes::FStringPart],
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
-        use crate::ast::nodes::FStringPart;
+        use ast::nodes::FStringPart;
 
         // Declare/get helper functions
         let format_float_fn = self
@@ -3788,9 +3788,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 .ok_or_else(|| anyhow!("missing elif condition value"))?
                 .into_int_value();
 
-                self.builder
-                    .build_conditional_branch(elif_cond_bool, elif_then_bb, next_bb)
-                    .expect("elif branch");
+            self.builder
+                .build_conditional_branch(elif_cond_bool, elif_then_bb, next_bb)
+                .expect("elif branch");
 
             // Generate elif then block
             self.builder.position_at_end(elif_then_bb);

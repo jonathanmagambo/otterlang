@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::nodes::Type;
+use ast::nodes::Type;
 
 /// Represents a type in the type system
 #[derive(Debug, Clone, PartialEq, Eq)]

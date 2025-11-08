@@ -1,4 +1,4 @@
-use crate::ast::nodes::{Block, Expr, Function, Program, Statement};
+use ast::nodes::{Block, Expr, Function, Program, Statement};
 
 /// Formats OtterLang code
 pub struct Formatter {
@@ -452,8 +452,8 @@ impl Formatter {
                 let parts_str = parts
                     .iter()
                     .map(|part| match part {
-                        crate::ast::nodes::FStringPart::Text(s) => s.clone(),
-                        crate::ast::nodes::FStringPart::Expr(e) => {
+                        ast::nodes::FStringPart::Text(s) => s.clone(),
+                        ast::nodes::FStringPart::Expr(e) => {
                             format!("{{{}}}", self.format_expr(e, indent))
                         }
                     })
@@ -464,12 +464,12 @@ impl Formatter {
         }
     }
 
-    fn format_pattern(&self, pattern: &crate::ast::nodes::Pattern) -> String {
+    fn format_pattern(&self, pattern: &ast::nodes::Pattern) -> String {
         match pattern {
-            crate::ast::nodes::Pattern::Wildcard => "_".to_string(),
-            crate::ast::nodes::Pattern::Literal(lit) => self.format_literal(lit),
-            crate::ast::nodes::Pattern::Identifier(name) => name.clone(),
-            crate::ast::nodes::Pattern::Struct { name, fields } => {
+            ast::nodes::Pattern::Wildcard => "_".to_string(),
+            ast::nodes::Pattern::Literal(lit) => self.format_literal(lit),
+            ast::nodes::Pattern::Identifier(name) => name.clone(),
+            ast::nodes::Pattern::Struct { name, fields } => {
                 let fields_str = fields
                     .iter()
                     .map(|(f, p_opt)| {
@@ -483,7 +483,7 @@ impl Formatter {
                     .join(", ");
                 format!("{}({})", name, fields_str)
             }
-            crate::ast::nodes::Pattern::Array { patterns, rest } => {
+            ast::nodes::Pattern::Array { patterns, rest } => {
                 let patterns_str = patterns
                     .iter()
                     .map(|p| self.format_pattern(p))
@@ -499,26 +499,26 @@ impl Formatter {
         }
     }
 
-    fn format_literal(&self, lit: &crate::ast::nodes::Literal) -> String {
+    fn format_literal(&self, lit: &ast::nodes::Literal) -> String {
         match lit {
-            crate::ast::nodes::Literal::Number(n) => {
+            ast::nodes::Literal::Number(n) => {
                 if !n.is_float_literal && n.value.fract() == 0.0 {
                     format!("{}", n.value as i64)
                 } else {
                     n.value.to_string()
                 }
             }
-            crate::ast::nodes::Literal::Bool(b) => b.to_string(),
-            crate::ast::nodes::Literal::String(s) => format!("\"{}\"", s),
-            crate::ast::nodes::Literal::None => "None".to_string(),
-            crate::ast::nodes::Literal::Unit => "()".to_string(),
+            ast::nodes::Literal::Bool(b) => b.to_string(),
+            ast::nodes::Literal::String(s) => format!("\"{}\"", s),
+            ast::nodes::Literal::None => "None".to_string(),
+            ast::nodes::Literal::Unit => "()".to_string(),
         }
     }
 
-    fn format_type(&self, ty: &crate::ast::nodes::Type) -> String {
+    fn format_type(&self, ty: &ast::nodes::Type) -> String {
         match ty {
-            crate::ast::nodes::Type::Simple(name) => name.clone(),
-            crate::ast::nodes::Type::Generic { base, args } => {
+            ast::nodes::Type::Simple(name) => name.clone(),
+            ast::nodes::Type::Generic { base, args } => {
                 if args.is_empty() {
                     base.clone()
                 } else {
@@ -533,30 +533,30 @@ impl Formatter {
         }
     }
 
-    fn format_binary_op(&self, op: &crate::ast::nodes::BinaryOp) -> &str {
+    fn format_binary_op(&self, op: &ast::nodes::BinaryOp) -> &str {
         match op {
-            crate::ast::nodes::BinaryOp::Add => "+",
-            crate::ast::nodes::BinaryOp::Sub => "-",
-            crate::ast::nodes::BinaryOp::Mul => "*",
-            crate::ast::nodes::BinaryOp::Div => "/",
-            crate::ast::nodes::BinaryOp::Mod => "%",
-            crate::ast::nodes::BinaryOp::Eq => "==",
-            crate::ast::nodes::BinaryOp::Ne => "!=",
-            crate::ast::nodes::BinaryOp::Lt => "<",
-            crate::ast::nodes::BinaryOp::LtEq => "<=",
-            crate::ast::nodes::BinaryOp::Gt => ">",
-            crate::ast::nodes::BinaryOp::GtEq => ">=",
-            crate::ast::nodes::BinaryOp::Is => "is",
-            crate::ast::nodes::BinaryOp::IsNot => "is not",
-            crate::ast::nodes::BinaryOp::And => "and",
-            crate::ast::nodes::BinaryOp::Or => "or",
+            ast::nodes::BinaryOp::Add => "+",
+            ast::nodes::BinaryOp::Mul => "*",
+            ast::nodes::BinaryOp::Sub => "-",
+            ast::nodes::BinaryOp::Div => "/",
+            ast::nodes::BinaryOp::Mod => "%",
+            ast::nodes::BinaryOp::Eq => "==",
+            ast::nodes::BinaryOp::Ne => "!=",
+            ast::nodes::BinaryOp::Lt => "<",
+            ast::nodes::BinaryOp::LtEq => "<=",
+            ast::nodes::BinaryOp::Gt => ">",
+            ast::nodes::BinaryOp::GtEq => ">=",
+            ast::nodes::BinaryOp::Is => "is",
+            ast::nodes::BinaryOp::IsNot => "is not",
+            ast::nodes::BinaryOp::And => "and",
+            ast::nodes::BinaryOp::Or => "or",
         }
     }
 
-    fn format_unary_op(&self, op: &crate::ast::nodes::UnaryOp) -> &str {
+    fn format_unary_op(&self, op: &ast::nodes::UnaryOp) -> &str {
         match op {
-            crate::ast::nodes::UnaryOp::Not => "not ",
-            crate::ast::nodes::UnaryOp::Neg => "-",
+            ast::nodes::UnaryOp::Not => "not ",
+            ast::nodes::UnaryOp::Neg => "-",
         }
     }
 

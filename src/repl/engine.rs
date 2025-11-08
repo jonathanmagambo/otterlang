@@ -3,12 +3,12 @@ use std::io::{self, Write};
 use anyhow::{bail, Context, Result};
 use colored::Colorize;
 
-use crate::ast::nodes::{Expr, Program, Statement};
 use crate::parser::parse;
 use crate::runtime::ffi;
 use crate::runtime::jit::executor::JitExecutor;
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::TypeChecker;
+use ast::nodes::{Expr, Program, Statement};
 use lexer::tokenize;
 
 /// REPL engine that maintains state across evaluations
@@ -132,11 +132,11 @@ impl ReplEngine {
             // Try parsing as expression
             if let Ok(expr) = self.parse_expression(input) {
                 // Create a temporary function that evaluates and prints the expression
-                statements.push(Statement::Function(crate::ast::nodes::Function {
+                statements.push(Statement::Function(ast::nodes::Function {
                     name: "__repl_expr".to_string(),
                     params: Vec::new(),
                     ret_ty: None,
-                    body: crate::ast::nodes::Block {
+                    body: ast::nodes::Block {
                         statements: vec![Statement::Expr(expr)],
                     },
                     public: false,

@@ -1,5 +1,5 @@
 use super::RuntimeConstant;
-use crate::ast::nodes::{Expr, Literal};
+use ast::nodes::{Expr, Literal};
 
 /// Propagates constant values through expressions
 pub struct ConstantPropagator;

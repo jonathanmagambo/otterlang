@@ -6,10 +6,10 @@ use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 
-use crate::ast::nodes::Program;
 use crate::codegen::{build_shared_library, CodegenOptLevel, CodegenOptions};
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::TypeChecker;
+use ast::nodes::Program;
 
 use super::adaptive::{AdaptiveConcurrencyManager, AdaptiveMemoryManager};
 use super::cache::FunctionCache;
@@ -190,7 +190,7 @@ impl JitEngine {
 
         // Extract function definitions from program
         for stmt in &program.statements {
-            if let crate::ast::nodes::Statement::Function(func) = stmt {
+            if let ast::nodes::Statement::Function(func) = stmt {
                 let func_name = &func.name;
                 let arg_count = func.params.len();
 
@@ -341,7 +341,7 @@ impl JitEngine {
         // Reload hot functions
         for hot_func in hot_functions {
             if let Some(func) = program.statements.iter().find_map(|stmt| match stmt {
-                crate::ast::nodes::Statement::Function(f) if f.name == hot_func.name => Some(f),
+                ast::nodes::Statement::Function(f) if f.name == hot_func.name => Some(f),
                 _ => None,
             }) {
                 let arg_count = func.params.len();

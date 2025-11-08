@@ -1,4 +1,3 @@
-pub mod ast;
 pub mod cache;
 pub mod cli;
 pub mod codegen;
