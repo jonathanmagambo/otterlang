@@ -1152,6 +1152,7 @@ dependencies = [
  "ahash",
  "anyhow",
  "ariadne",
+ "ast",
  "cargo_metadata",
  "chrono",
  "chumsky",
