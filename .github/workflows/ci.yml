@@ -83,6 +83,41 @@ jobs:
 
           Write-Host "Clang version:"
           & (Join-Path $llvmBin "clang.exe") --version
+
+      - name: Install libxml2 (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Write-Host "Installing libxml2 via Chocolatey..."
+          choco install libxml2 -y --no-progress
+
+          $libRoot = "C:\ProgramData\chocolatey\lib\libxml2"
+          if (-not (Test-Path $libRoot)) {
+            throw "libxml2 root not found at $libRoot"
+          }
+
+          $libFile = Get-ChildItem -Path $libRoot -Recurse -Filter libxml2s.lib | Select-Object -First 1
+          if (-not $libFile) {
+            throw "Unable to locate libxml2s.lib after installation"
+          }
+          $libDir = $libFile.DirectoryName
+
+          Write-Host "libxml2 library path: $libDir"
+          "LIB=$libDir;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LIBXML2_LIB_PATH=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          $includeDir = Get-ChildItem -Path $libRoot -Recurse -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'libxml\xmlversion.h') } |
+            Select-Object -First 1
+          if ($includeDir) {
+            $incPath = $includeDir.FullName
+            Write-Host "libxml2 include path: $incPath"
+            "LIBXML2_INCLUDE_PATH=$incPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          } else {
+            Write-Warning "Could not determine libxml2 include directory"
+          }
       
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
