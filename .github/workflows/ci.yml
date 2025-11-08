@@ -39,79 +39,32 @@ jobs:
         env:
           HOMEBREW_NO_INSTALL_CLEANUP: 1
       
-      - name: Install LLVM 18 (Windows)
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+      
+      - name: Install LLVM 18.1 (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = "Continue"
-          $llvmInstalled = $false
           
-          if (Get-Command winget -ErrorAction SilentlyContinue) {
-            Write-Host "Attempting to install LLVM via winget..."
-            winget install --id LLVM.LLVM --version 18.1.0 --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "Specific version not found, trying latest LLVM 18..."
-              winget install --id LLVM.LLVM --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-            }
-            if ($LASTEXITCODE -eq 0) {
-              $llvmInstalled = $true
-              Write-Host "LLVM installed successfully via winget"
-            } else {
-              Write-Host "winget installation failed, trying choco..."
-            }
-          }
+          Write-Host "Installing llvmenv..."
+          cargo install llvmenv --locked
           
-          if (-not $llvmInstalled) {
-            if (Get-Command choco -ErrorAction SilentlyContinue) {
-              Write-Host "Attempting to install LLVM via choco..."
-              choco install llvm -y
-              if ($LASTEXITCODE -eq 0) {
-                $llvmInstalled = $true
-                Write-Host "LLVM installed successfully via choco"
-              }
-            }
-          }
+          Write-Host "Installing LLVM 18.1 via llvmenv..."
+          llvmenv install 18.1
           
-          $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          Write-Host "Setting LLVM 18.1 as active version..."
+          llvmenv global 18.1
           
-          $llvmPaths = @(
-            "C:\Program Files\LLVM",
-            "C:\Program Files (x86)\LLVM",
-            "${env:ProgramFiles}\LLVM",
-            "${env:ProgramFiles(x86)}\LLVM"
-          )
+          $llvmPath = llvmenv prefix
+          Write-Host "LLVM installed at: $llvmPath"
           
-          $llvmPath = $null
-          foreach ($path in $llvmPaths) {
-            if (Test-Path $path) {
-              $llvmPath = $path
-              break
-            }
-          }
-          
-          if (-not $llvmPath) {
-            try {
-              $clangPath = (Get-Command clang -ErrorAction Stop).Source
-              $llvmPath = Split-Path (Split-Path $clangPath -Parent) -Parent
-              Write-Host "Found LLVM via clang command: $llvmPath"
-            } catch {
-              Write-Host "Could not find clang in PATH"
-            }
-          }
-          
-          if (-not $llvmPath) {
-            throw "Could not find LLVM installation. Please check installation."
-          }
-          
-          Write-Host "LLVM found at: $llvmPath"
           "LLVM_SYS_181_PREFIX=$llvmPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$llvmPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           
           $clangVersion = clang --version 2>&1
           Write-Host "Clang version: $clangVersion"
-      
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly
       
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
