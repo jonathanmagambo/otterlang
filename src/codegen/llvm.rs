@@ -10,8 +10,8 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::Module;
-use inkwell::passes::PassManager;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target};
+use inkwell::passes::PassBuilderOptions;
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine};
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
@@ -24,6 +24,7 @@ use crate::typecheck::TypeInfo;
 use ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
 use ffi::{BridgeSymbolRegistry, CargoBridge, DynamicLibraryLoader, FunctionSpec, TypeSpec};
 use libloading::Library;
+use tracing::warn;
 
 pub struct CodegenOptions {
     pub emit_ir: bool,
@@ -73,24 +74,6 @@ fn llvm_triple_to_string(triple: &inkwell::targets::TargetTriple) -> String {
         .to_str()
         .unwrap_or("unknown-unknown-unknown")
         .to_string()
-}
-
-fn sanitize_triple(triple: &str) -> String {
-    if let Some(darwin_idx) = triple.find("darwin") {
-        let after = &triple[darwin_idx + 6..];
-        if after
-            .chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_digit() || c == '.')
-        {
-            let prefix = &triple[..darwin_idx];
-            format!("{prefix}darwin")
-        } else {
-            triple.to_string()
-        }
-    } else {
-        triple.to_string()
-    }
 }
 
 pub struct BuildArtifact {
@@ -233,15 +216,11 @@ pub fn build_executable(
     Target::initialize_all(&InitializationConfig::default());
 
     // Determine target triple: use provided target or fall back to native
-    let runtime_triple = if let Some(ref target) = options.target {
-        target.clone()
-    } else {
-        // Get native target triple directly from LLVM
+    let runtime_triple = options.target.clone().unwrap_or_else(|| {
         let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-        let native_str = llvm_triple_to_string(&native_triple);
-        TargetTriple::parse(&native_str)
+        TargetTriple::parse(&llvm_triple_to_string(&native_triple))
             .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")))
-    };
+    });
 
     // Convert to LLVM triple format
     let triple_str = runtime_triple.to_llvm_triple();
@@ -281,6 +260,7 @@ pub fn build_executable(
         options.enable_pgo,
         options.pgo_profile_file.as_deref(),
         options.inline_threshold,
+        &target_machine,
     );
 
     let object_path = output.with_extension("o");
@@ -294,22 +274,6 @@ pub fn build_executable(
         })?;
 
     // Create a C runtime shim for the FFI functions (target-specific)
-    let runtime_c = output.with_extension("runtime.c");
-    // Parse native triple for runtime code generation
-    let runtime_triple = TargetTriple::parse(&native_str)
-        .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")));
-    let runtime_c_content = runtime_triple.runtime_c_code();
-    fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
-
-    // Compile the runtime C file (target-specific)
-    let runtime_o = output.with_extension("runtime.o");
-    let c_compiler = runtime_triple.c_compiler();
-    let mut cc = Command::new(&c_compiler);
-
-    // Add target-specific compiler flags
-    if runtime_triple.is_wasm() {
-        // For WebAssembly, use clang with target flag
-        cc.arg("--target").arg(&native_str).arg("-c");
     let runtime_c = if runtime_triple.is_wasm() {
         None
     } else {
@@ -342,6 +306,8 @@ pub fn build_executable(
         }
 
         Some(runtime_o)
+    } else {
+        None
     };
 
     // Link the object files together (target-specific)
@@ -500,6 +466,7 @@ pub fn build_shared_library(
         options.enable_pgo,
         options.pgo_profile_file.as_deref(),
         options.inline_threshold,
+        &target_machine,
     );
 
     // Compile to object file with position-independent code
@@ -524,9 +491,6 @@ pub fn build_shared_library(
     };
 
     // Compile runtime C file (target-specific)
-    let runtime_o = output.with_extension("runtime.o");
-    let c_compiler = runtime_triple.c_compiler();
-    let mut cc = Command::new(&c_compiler);
     let runtime_o = if let Some(ref rt_c) = runtime_c {
         let runtime_o = output.with_extension("runtime.o");
         let c_compiler = runtime_triple.c_compiler();
@@ -3955,92 +3919,46 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         enable_pgo: bool,
         pgo_profile_file: Option<&Path>,
         inline_threshold: Option<u32>,
+        target_machine: &TargetMachine,
     ) {
         if matches!(level, CodegenOptLevel::None) {
             return;
         }
 
-        // Set inline threshold if specified
-        if let Some(_threshold) = inline_threshold {
-            // Set module-level inline threshold attribute
-            // Note: inkwell doesn't expose direct threshold setting, so we'll configure via pass manager
-            // The inlining pass will respect optimization level
+        if inline_threshold.is_some() {
+            warn!(
+                "Custom inline thresholds are not supported on LLVM 18; falling back to the default pipeline"
+            );
         }
 
-        let pass_manager = PassManager::create(());
+        let mut pipeline = match level {
+            CodegenOptLevel::None => unreachable!(),
+            CodegenOptLevel::Default => "default<O2>".to_string(),
+            CodegenOptLevel::Aggressive => "default<O3>".to_string(),
+        };
 
-        // PGO instrumentation pass (if enabled and no profile file provided)
-        if enable_pgo && pgo_profile_file.is_none() {
-            // Add instrumentation pass for profile generation
-            // Note: inkwell doesn't directly expose PGO instrumentation passes
-            // In a full implementation, you would use LLVM's instrprof pass
+        if enable_pgo {
+            if pgo_profile_file.is_none() {
+                pipeline.push_str(",pgo-instr-gen");
+            } else {
+                pipeline.push_str(",pgo-instr-use");
+            }
         }
 
-        // Early optimization passes - run these first for better analysis
-        // pass_manager.add_type_based_alias_analysis_pass();
-        // pass_manager.add_scoped_no_alias_aa_pass();
-        // pass_manager.add_basic_alias_analysis_pass();
+        let options = PassBuilderOptions::create();
+        options.set_loop_interleaving(true);
+        options.set_loop_vectorization(true);
+        options.set_loop_slp_vectorization(true);
+        options.set_loop_unrolling(true);
+        options.set_merge_functions(matches!(level, CodegenOptLevel::Aggressive));
+        options.set_call_graph_profile(enable_pgo && pgo_profile_file.is_some());
 
-        // Memory and data flow optimizations
-        // pass_manager.add_memcpy_optimize_pass();
-        // pass_manager.add_dead_store_elimination_pass();
-
-        // Arithmetic and instruction optimizations
-        // pass_manager.add_instruction_combining_pass();
-        // pass_manager.add_reassociate_pass();
-        // pass_manager.add_gvn_pass();
-        // pass_manager.add_cfg_simplification_pass();
-        // pass_manager.add_instruction_simplify_pass();
-
-        // Function-level optimizations with enhanced inlining
-        // Configure inlining based on threshold and optimization level
-        // pass_manager.add_function_inlining_pass();
-        // Note: inkwell's API doesn't expose threshold configuration directly
-        // In practice, the optimization level influences inlining aggressiveness
-
-        // If aggressive optimization and no threshold specified, use more aggressive inlining
-        if matches!(level, CodegenOptLevel::Aggressive) && inline_threshold.is_none() {
-            // Aggressive inlining is already handled by optimization level
+        if let Err(err) = self.module.run_passes(&pipeline, target_machine, options) {
+            warn!(
+                "Failed to run optimization pipeline `{}`: {}",
+                pipeline,
+                err
+            );
         }
-
-        // pass_manager.add_constant_merge_pass();
-        // pass_manager.add_merge_functions_pass();
-
-        // Control flow optimizations
-        // pass_manager.add_tail_call_elimination_pass();
-
-        // Advanced analysis-based optimizations
-        // pass_manager.add_sccp_pass(); // Sparse Conditional Constant Propagation
-        // pass_manager.add_aggressive_dce_pass(); // Aggressive Dead Code Elimination
-        // pass_manager.add_licm_pass(); // Loop-Invariant Code Motion
-        // pass_manager.add_loop_deletion_pass();
-
-        if matches!(level, CodegenOptLevel::Default) {
-            // Additional optimizations for default level
-            // pass_manager.add_promote_memory_to_register_pass();
-            // pass_manager.add_dead_store_elimination_pass();
-        }
-
-        if matches!(level, CodegenOptLevel::Aggressive) {
-            // Most aggressive optimizations for release mode
-            // pass_manager.add_loop_unroll_pass();
-            // pass_manager.add_loop_vectorize_pass();
-            // pass_manager.add_slp_vectorize_pass(); // Superword-Level Parallelism
-
-            // Inter-procedural optimizations
-            // pass_manager.add_ipsccp_pass();
-            // pass_manager.add_global_optimizer_pass();
-        }
-
-        // PGO-based optimizations (if profile file provided)
-        if enable_pgo && pgo_profile_file.is_some() {
-            // Use profile data for optimization
-            // Note: inkwell doesn't directly expose PGO passes
-            // In a full implementation, you would use LLVM's pgo-instr-use pass
-            // For now, we rely on the optimization level which respects profile data
-            // when available at link time
-        }
-
-        pass_manager.run_on(&self.module);
     }
 }
