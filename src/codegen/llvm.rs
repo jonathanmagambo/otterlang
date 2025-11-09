@@ -3,9 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, anyhow, bail};
-use inkwell::AddressSpace;
-use inkwell::OptimizationLevel;
+use anyhow::{anyhow, bail, Context, Result};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
@@ -16,6 +14,8 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
 };
+use inkwell::AddressSpace;
+use inkwell::OptimizationLevel;
 
 use crate::codegen::target::TargetTriple;
 use crate::runtime::ffi::register_dynamic_exports;
@@ -248,12 +248,8 @@ pub fn build_executable(
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
-    let target = Target::from_triple(&llvm_triple).map_err(|e| {
-        anyhow!(
-            "failed to create target from triple {}: {e}",
-            triple_str
-        )
-    })?;
+    let target = Target::from_triple(&llvm_triple)
+        .map_err(|e| anyhow!("failed to create target from triple {}: {e}", triple_str))?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
     let reloc_mode = if runtime_triple.is_wasm() {
@@ -296,20 +292,13 @@ pub fn build_executable(
     // Create a C runtime shim for the FFI functions (target-specific)
     let runtime_c = output.with_extension("runtime.c");
     // Parse native triple for runtime code generation
-    let runtime_triple = TargetTriple::parse(&native_str)
+    let runtime_triple = TargetTriple::parse(&triple_str)
         .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")));
     let runtime_c_content = runtime_triple.runtime_c_code();
     fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
 
-    // Compile the runtime C file (target-specific)
-    let runtime_o = output.with_extension("runtime.o");
-    let c_compiler = runtime_triple.c_compiler();
-    let mut cc = Command::new(&c_compiler);
-
     // Add target-specific compiler flags
-    if runtime_triple.is_wasm() {
-        // For WebAssembly, use clang with target flag
-        cc.arg("--target").arg(&native_str).arg("-c");
+
     let runtime_c = if runtime_triple.is_wasm() {
         None
     } else {
@@ -342,6 +331,8 @@ pub fn build_executable(
         }
 
         Some(runtime_o)
+    } else {
+        None
     };
 
     // Link the object files together (target-specific)
@@ -377,13 +368,13 @@ pub fn build_executable(
         cc.arg("-flto");
         // Note: clang doesn't support -flto=O2/O3, use -O flags instead
         match options.opt_level {
-            CodegenOptLevel::None => {},
+            CodegenOptLevel::None => {}
             CodegenOptLevel::Default => {
                 cc.arg("-O2");
-            },
+            }
             CodegenOptLevel::Aggressive => {
                 cc.arg("-O3");
-            },
+            }
         }
     }
 
@@ -467,12 +458,8 @@ pub fn build_shared_library(
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
-    let target = Target::from_triple(&llvm_triple).map_err(|e| {
-        anyhow!(
-            "failed to create target from triple {}: {e}",
-            triple_str
-        )
-    })?;
+    let target = Target::from_triple(&llvm_triple)
+        .map_err(|e| anyhow!("failed to create target from triple {}: {e}", triple_str))?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
     let reloc_mode = if runtime_triple.is_wasm() {
@@ -587,9 +574,7 @@ pub fn build_shared_library(
             cc.arg("-fPIC");
         }
         cc.arg("--target").arg(&triple_str);
-        cc.arg("-o")
-            .arg(&lib_path)
-            .arg(&object_path);
+        cc.arg("-o").arg(&lib_path).arg(&object_path);
         if let Some(ref rt_o) = runtime_o {
             cc.arg(rt_o);
         }
@@ -604,13 +589,13 @@ pub fn build_shared_library(
         cc.arg("-flto");
         // Note: clang doesn't support -flto=O2/O3, use -O flags instead
         match options.opt_level {
-            CodegenOptLevel::None => {},
+            CodegenOptLevel::None => {}
             CodegenOptLevel::Default => {
                 cc.arg("-O2");
-            },
+            }
             CodegenOptLevel::Aggressive => {
                 cc.arg("-O3");
-            },
+            }
         }
     }
 
@@ -1989,20 +1974,23 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 match op {
                     BinaryOp::Add => {
                         let concat_fn = self.declare_or_get_concat_function();
-                        let call = self
-                            .builder
-                            .build_call(concat_fn, &[lhs.into(), rhs.into()], "str_concat")?;
-                        let value = call
-                            .try_as_basic_value()
-                            .left()
-                            .ok_or_else(|| anyhow!("otter_concat_strings did not return a value"))?;
+                        let call = self.builder.build_call(
+                            concat_fn,
+                            &[lhs.into(), rhs.into()],
+                            "str_concat",
+                        )?;
+                        let value = call.try_as_basic_value().left().ok_or_else(|| {
+                            anyhow!("otter_concat_strings did not return a value")
+                        })?;
                         return Ok(EvaluatedValue::with_value(value, OtterType::Str));
                     }
                     BinaryOp::Eq | BinaryOp::Ne => {
                         let strcmp_fn = self.declare_or_get_strcmp_function();
-                        let call = self
-                            .builder
-                            .build_call(strcmp_fn, &[lhs.into(), rhs.into()], "strcmp")?;
+                        let call = self.builder.build_call(
+                            strcmp_fn,
+                            &[lhs.into(), rhs.into()],
+                            "strcmp",
+                        )?;
                         let result = call
                             .try_as_basic_value()
                             .left()
@@ -2024,7 +2012,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     }
                     other => bail!("unsupported binary operation for strings: {:?}", other),
                 }
-            },
+            }
             OtterType::I64 => {
                 let lhs = left_value
                     .value
@@ -2109,7 +2097,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     _ => bail!("unsupported binary operation for integers: {:?}", op),
                 };
                 return Ok(EvaluatedValue::with_value(result, OtterType::I64));
-            },
+            }
             OtterType::F64 => {
                 let lhs = left_value
                     .value
@@ -2226,7 +2214,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     _ => bail!("unsupported binary operation for floats: {:?}", op),
                 };
                 return Ok(EvaluatedValue::with_value(result, OtterType::F64));
-            },
+            }
             _ => bail!(
                 "binary expressions support only integers and floats, got {:?}",
                 left_value.ty
