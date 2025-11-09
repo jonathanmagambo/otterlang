@@ -1,4 +1,4 @@
-use otter:fmt
+use fmt
 
 fn simulate_operation(name: str, should_fail: bool) -> str:
     fmt.println("Starting operation: " + name)

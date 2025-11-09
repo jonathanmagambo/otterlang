@@ -1,4 +1,4 @@
-use otter:fmt
+use fmt
 
 fn validate_age(age_str: str) -> float:
     if len(age_str) == 0:

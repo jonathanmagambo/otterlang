@@ -105,6 +105,21 @@ impl Block {
 }
 
 #[derive(Debug, Clone)]
+pub struct UseImport {
+    pub module: String,
+    pub alias: Option<String>,
+}
+
+impl UseImport {
+    pub fn new(module: impl Into<String>, alias: Option<String>) -> Self {
+        Self {
+            module: module.into(),
+            alias,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     // Variable declarations and assignments
     Let {
@@ -161,8 +176,7 @@ pub enum Statement {
 
     // Module imports
     Use {
-        module: String,
-        alias: Option<String>,
+        imports: Vec<UseImport>,
     },
 
     // Blocks (for grouping)

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Represents a module path that can be resolved
@@ -9,6 +10,8 @@ pub enum ModulePath {
     Stdlib(String),
     /// Rust FFI module: `use rust:serde_json`
     Rust(String),
+    /// Unqualified module path, prefers stdlib (e.g. `use fmt`)
+    Unqualified(String),
     /// Relative path: `use ./math` or `use ../utils`
     Relative(PathBuf),
     /// Absolute path: `use /path/to/module`
@@ -31,8 +34,8 @@ impl ModulePath {
             let relative = PathBuf::from(module);
             Ok(ModulePath::Relative(relative))
         } else {
-            // Try as relative path (no ./ prefix)
-            Ok(ModulePath::Relative(PathBuf::from(module)))
+            // Try as unqualified module path (potential stdlib or relative)
+            Ok(ModulePath::Unqualified(module.to_string()))
         }
     }
 
@@ -42,58 +45,83 @@ impl ModulePath {
             ModulePath::Stdlib(name) => {
                 let stdlib =
                     stdlib_dir.ok_or_else(|| anyhow!("stdlib directory not configured"))?;
-                let mut path = stdlib.join(name);
-                path.set_extension("ot");
-
-                if path.exists() {
-                    Ok(path)
-                } else {
-                    bail!("stdlib module '{}' not found at {}", name, path.display())
-                }
+                Self::resolve_stdlib_path(stdlib, name)?.ok_or_else(|| {
+                    anyhow!(
+                        "stdlib module '{}' not found at {}",
+                        name,
+                        stdlib.join(name).display()
+                    )
+                })
             }
             ModulePath::Rust(_) => {
                 // Rust modules are handled separately via FFI
                 bail!("Rust modules should be handled via FFI system")
             }
+            ModulePath::Unqualified(name) => {
+                if let Some(stdlib) = stdlib_dir {
+                    if let Some(path) = Self::resolve_stdlib_path(stdlib, name)? {
+                        return Ok(path);
+                    }
+                }
+                Self::resolve_relative_path(source_dir, &PathBuf::from(name))
+            }
             ModulePath::Relative(rel_path) => {
-                let resolved = source_dir.join(rel_path);
-                let mut path = if resolved.is_dir() {
-                    resolved.join("mod.ot")
-                } else {
-                    resolved
-                };
-
-                if !path.exists() && !path.extension().map_or(false, |ext| ext == "ot") {
-                    path.set_extension("ot");
-                }
-
-                if path.exists() {
-                    Ok(path.canonicalize().with_context(|| {
-                        format!("failed to canonicalize module path {}", path.display())
-                    })?)
-                } else {
-                    bail!("module not found: {}", path.display())
-                }
+                Self::resolve_relative_path(source_dir, rel_path)
             }
             ModulePath::Absolute(abs_path) => {
-                let mut path = if abs_path.is_dir() {
-                    abs_path.join("mod.ot")
-                } else {
-                    abs_path.clone()
-                };
-
-                if !path.exists() && !path.extension().map_or(false, |ext| ext == "ot") {
-                    path.set_extension("ot");
-                }
-
-                if path.exists() {
-                    Ok(path.canonicalize().with_context(|| {
-                        format!("failed to canonicalize module path {}", path.display())
-                    })?)
-                } else {
-                    bail!("module not found: {}", path.display())
-                }
+                Self::resolve_absolute_path(abs_path)
             }
+        }
+    }
+}
+
+impl ModulePath {
+    fn resolve_stdlib_path(stdlib: &Path, name: &str) -> Result<Option<PathBuf>> {
+        let mut path = stdlib.join(name);
+        if path.is_dir() {
+            path = path.join("mod.ot");
+        } else {
+            // Append .ot if no extension yet
+            if !path.extension().map_or(false, |ext| ext == "ot") {
+                path.set_extension("ot");
+            }
+        }
+
+        if path.exists() {
+            Ok(Some(
+                path.canonicalize().with_context(|| {
+                    format!("failed to canonicalize module path {}", path.display())
+                })?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn resolve_relative_path(base: &Path, rel_path: &Path) -> Result<PathBuf> {
+        let resolved = base.join(rel_path);
+        Self::canonicalize_module_path(resolved)
+    }
+
+    fn resolve_absolute_path(abs_path: &Path) -> Result<PathBuf> {
+        Self::canonicalize_module_path(abs_path.to_path_buf())
+    }
+
+    fn canonicalize_module_path(mut path: PathBuf) -> Result<PathBuf> {
+        if path.is_dir() {
+            path = path.join("mod.ot");
+        }
+
+        if !path.exists() && !path.extension().map_or(false, |ext| ext == "ot") {
+            path.set_extension("ot");
+        }
+
+        if path.exists() {
+            Ok(path.canonicalize().with_context(|| {
+                format!("failed to canonicalize module path {}", path.display())
+            })?)
+        } else {
+            bail!("module not found: {}", path.display())
         }
     }
 }
@@ -198,6 +226,7 @@ impl ModuleResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn test_module_path_parsing() {
@@ -218,6 +247,42 @@ mod tests {
         // Test absolute
         let path = ModulePath::from_string("/usr/lib/math", &source_dir).unwrap();
         assert!(matches!(path, ModulePath::Absolute(_)));
+
+        // Test unqualified
+        let path = ModulePath::from_string("fmt", &source_dir).unwrap();
+        assert!(matches!(path, ModulePath::Unqualified(name) if name == "fmt"));
+    }
+
+    #[test]
+    fn test_unqualified_prefers_stdlib() {
+        let temp = TempDir::new().unwrap();
+        let stdlib_dir = temp.path().join("stdlib");
+        fs::create_dir_all(&stdlib_dir).unwrap();
+
+        let fmt_module = stdlib_dir.join("fmt.ot");
+        fs::write(&fmt_module, "fn main: pass").unwrap();
+
+        let mut resolver = ModuleResolver::new(temp.path().to_path_buf(), Some(stdlib_dir));
+        let resolved = resolver.resolve("fmt").unwrap();
+        assert_eq!(resolved, fmt_module.canonicalize().unwrap());
+
+        // Ensure explicit stdlib still works
+        let resolved_std = resolver.resolve("otter:fmt").unwrap();
+        assert_eq!(resolved, resolved_std);
+    }
+
+    #[test]
+    fn test_unqualified_relative_fallback() {
+        let temp = TempDir::new().unwrap();
+        let source_dir = temp.path().join("src");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let local_module = source_dir.join("utils.ot");
+        fs::write(&local_module, "fn main: pass").unwrap();
+
+        let resolver = ModuleResolver::new(source_dir.clone(), None);
+        let resolved = resolver.resolve("utils").unwrap();
+        assert_eq!(resolved, local_module.canonicalize().unwrap());
     }
 
     #[test]

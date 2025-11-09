@@ -1,4 +1,4 @@
-use otter:fmt
+use fmt
 
 fn risky_operation(value: float) -> float:
     if value < 0:

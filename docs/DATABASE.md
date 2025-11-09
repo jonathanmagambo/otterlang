@@ -12,7 +12,7 @@ SQLite support is provided through the `rusqlite` crate.
 
 ```otter
 use rust:rusqlite
-use otter:json
+use json
 
 fn main:
     # Open database
@@ -57,7 +57,7 @@ PostgreSQL support is provided through the `postgres` crate.
 
 ```otter
 use rust:postgres
-use otter:json
+use json
 
 fn main:
     # Connect to database

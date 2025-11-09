@@ -15,11 +15,12 @@ pub struct ModuleProcessor {
 
 impl ModuleProcessor {
     pub fn new(source_dir: PathBuf, stdlib_dir: Option<PathBuf>) -> Self {
-        let loader = ModuleLoader::new(source_dir.clone(), stdlib_dir.clone());
+        let normalized_stdlib = stdlib_dir.map(|dir| dir.canonicalize().unwrap_or(dir));
+        let loader = ModuleLoader::new(source_dir.clone(), normalized_stdlib.clone());
         Self {
             loader,
             source_dir,
-            stdlib_dir,
+            stdlib_dir: normalized_stdlib,
             loaded_modules: HashMap::new(),
         }
     }
@@ -30,42 +31,38 @@ impl ModuleProcessor {
         let mut rust_imports = Vec::new();
 
         for statement in &program.statements {
-            if let Statement::Use { module, .. } = statement {
-                let module_path = ModulePath::from_string(module, &self.source_dir)?;
+            if let Statement::Use { imports } = statement {
+                for import in imports {
+                    let module = &import.module;
+                    let module_path = ModulePath::from_string(module, &self.source_dir)?;
 
-                match module_path {
-                    ModulePath::Rust(_) => {
-                        // Rust FFI imports are handled separately
-                        rust_imports.push(module.clone());
-                    }
-                    ModulePath::Stdlib(_) => {
-                        // Load stdlib module
-                        let resolved = self.loader.resolver().resolve(module)?;
-                        if !self.loaded_modules.contains_key(&resolved) {
-                            let module = self.loader.load_file(&resolved)?;
-                            dependencies.push(resolved.clone());
-                            self.loaded_modules.insert(resolved, module);
+                    match module_path {
+                        ModulePath::Rust(_) => {
+                            rust_imports.push(module.clone());
                         }
-                    }
-                    ModulePath::Relative(_) | ModulePath::Absolute(_) => {
-                        // Load relative/absolute module
-                        let resolved = self.loader.resolver().resolve(module)?;
-                        if !self.loaded_modules.contains_key(&resolved) {
-                            // Check for circular dependencies
-                            self.loader
-                                .resolver_mut()
-                                .add_dependency(self.source_dir.clone(), resolved.clone());
-                            self.loader
-                                .resolver_mut()
-                                .check_circular(&self.source_dir)?;
-
-                            let module = self.loader.load_file(&resolved)?;
-                            dependencies.push(resolved.clone());
-                            self.loaded_modules.insert(resolved.clone(), module);
-
-                            // Recursively process imports in the loaded module
-                            let module_deps = self.process_module_imports(&resolved)?;
-                            dependencies.extend(module_deps);
+                        ModulePath::Stdlib(_) => {
+                            let resolved = self.loader.resolver().resolve(module)?;
+                            self.load_stdlib_dependency(resolved, &mut dependencies)?;
+                        }
+                        ModulePath::Relative(_) | ModulePath::Absolute(_) => {
+                            let resolved = self.loader.resolver().resolve(module)?;
+                            self.load_local_dependency(
+                                &self.source_dir,
+                                resolved,
+                                &mut dependencies,
+                            )?;
+                        }
+                        ModulePath::Unqualified(_) => {
+                            let resolved = self.loader.resolver().resolve(module)?;
+                            if self.is_stdlib_path(&resolved) {
+                                self.load_stdlib_dependency(resolved, &mut dependencies)?;
+                            } else {
+                                self.load_local_dependency(
+                                    &self.source_dir,
+                                    resolved,
+                                    &mut dependencies,
+                                )?;
+                            }
                         }
                     }
                 }
@@ -90,47 +87,45 @@ impl ModuleProcessor {
         let mut dependencies = Vec::new();
 
         for statement in &module_statements {
-            if let Statement::Use {
-                module: module_name,
-                ..
-            } = statement
-            {
-                let module_dir = module_path.parent().unwrap_or(Path::new("."));
-                let module_path_enum = ModulePath::from_string(module_name, module_dir)?;
+            if let Statement::Use { imports } = statement {
+                for import in imports {
+                    let module = &import.module;
+                    let module_dir = module_path.parent().unwrap_or(Path::new("."));
+                    let module_path_enum = ModulePath::from_string(module, module_dir)?;
 
-                match module_path_enum {
-                    ModulePath::Rust(_) => {
-                        // Skip Rust imports
-                    }
-                    ModulePath::Stdlib(_) => {
-                        let resolved = self.loader.resolver().resolve(module_name)?;
-                        if !self.loaded_modules.contains_key(&resolved) {
-                            let module = self.loader.load_file(&resolved)?;
-                            dependencies.push(resolved.clone());
-                            self.loaded_modules.insert(resolved.clone(), module);
+                    match module_path_enum {
+                        ModulePath::Rust(_) => {}
+                        ModulePath::Stdlib(_) => {
+                            let resolver = ModuleResolver::new(
+                                module_dir.to_path_buf(),
+                                self.stdlib_dir.clone(),
+                            );
+                            let resolved = resolver.resolve(module)?;
+                            self.load_stdlib_dependency(resolved, &mut dependencies)?;
                         }
-                    }
-                    ModulePath::Relative(_) | ModulePath::Absolute(_) => {
-                        // Resolve relative to the current module's directory
-                        let module_dir = module_path.parent().unwrap_or(Path::new("."));
-                        let resolver =
-                            ModuleResolver::new(module_dir.to_path_buf(), self.stdlib_dir.clone());
-                        let resolved = resolver.resolve(module_name)?;
-
-                        if !self.loaded_modules.contains_key(&resolved) {
-                            // Check for circular dependencies
-                            self.loader
-                                .resolver_mut()
-                                .add_dependency(module_path.clone(), resolved.clone());
-                            self.loader.resolver_mut().check_circular(module_path)?;
-
-                            let module = self.loader.load_file(&resolved)?;
-                            dependencies.push(resolved.clone());
-                            self.loaded_modules.insert(resolved.clone(), module);
-
-                            // Recursively process
-                            let module_deps = self.process_module_imports(&resolved)?;
-                            dependencies.extend(module_deps);
+                        ModulePath::Relative(_) | ModulePath::Absolute(_) => {
+                            let resolver = ModuleResolver::new(
+                                module_dir.to_path_buf(),
+                                self.stdlib_dir.clone(),
+                            );
+                            let resolved = resolver.resolve(module)?;
+                            self.load_local_dependency(module_path, resolved, &mut dependencies)?;
+                        }
+                        ModulePath::Unqualified(_) => {
+                            let resolver = ModuleResolver::new(
+                                module_dir.to_path_buf(),
+                                self.stdlib_dir.clone(),
+                            );
+                            let resolved = resolver.resolve(module)?;
+                            if self.is_stdlib_path(&resolved) {
+                                self.load_stdlib_dependency(resolved, &mut dependencies)?;
+                            } else {
+                                self.load_local_dependency(
+                                    module_path,
+                                    resolved,
+                                    &mut dependencies,
+                                )?;
+                            }
                         }
                     }
                 }
@@ -152,8 +147,55 @@ impl ModuleProcessor {
 
     /// Set stdlib directory
     pub fn set_stdlib_dir(&mut self, dir: PathBuf) {
-        self.loader.resolver_mut().set_stdlib_dir(dir.clone());
-        self.stdlib_dir = Some(dir);
+        let normalized = dir.canonicalize().unwrap_or(dir);
+        self.loader.resolver_mut().set_stdlib_dir(normalized.clone());
+        self.stdlib_dir = Some(normalized);
+    }
+}
+
+impl ModuleProcessor {
+    fn load_stdlib_dependency(
+        &mut self,
+        resolved: PathBuf,
+        dependencies: &mut Vec<PathBuf>,
+    ) -> Result<()> {
+        if !self.loaded_modules.contains_key(&resolved) {
+            let module = self.loader.load_file(&resolved)?;
+            dependencies.push(resolved.clone());
+            self.loaded_modules.insert(resolved, module);
+        }
+        Ok(())
+    }
+
+    fn load_local_dependency(
+        &mut self,
+        owner: &Path,
+        resolved: PathBuf,
+        dependencies: &mut Vec<PathBuf>,
+    ) -> Result<()> {
+        if !self.loaded_modules.contains_key(&resolved) {
+            let owner_path = owner.to_path_buf();
+            self.loader
+                .resolver_mut()
+                .add_dependency(owner_path.clone(), resolved.clone());
+            self.loader.resolver_mut().check_circular(&owner_path)?;
+
+            let module = self.loader.load_file(&resolved)?;
+            dependencies.push(resolved.clone());
+            self.loaded_modules.insert(resolved.clone(), module);
+
+            let module_deps = self.process_module_imports(&resolved)?;
+            dependencies.extend(module_deps);
+        }
+        Ok(())
+    }
+
+    fn is_stdlib_path(&self, path: &Path) -> bool {
+        self
+            .stdlib_dir
+            .as_ref()
+            .map(|dir| path.starts_with(dir))
+            .unwrap_or(false)
     }
 }
 

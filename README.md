@@ -26,7 +26,7 @@ cargo +nightly build --release
 
 # Create and run your first program
 cat > hello.ot << 'EOF'
-use otter:fmt
+use fmt
 
 fn main():
     fmt.println("Hello from OtterLang!")
@@ -138,8 +138,7 @@ cargo +nightly test --release
 Clean indentation-based syntax with modern features:
 
 ```otter
-use otter:fmt
-use otter:math
+use fmt, math
 
 fn greet(name: str) -> str:
     return "Hello, " + name + "!"
@@ -171,8 +170,7 @@ fn main():
 Automatically use any Rust crate without manual configuration:
 
 ```otter
-use rust:rand
-use otter:fmt
+use fmt, rust:rand
 
 fn main():
     let random = rand.random_f64()
@@ -190,22 +188,31 @@ See [docs/FFI_TRANSPARENT.md](docs/FFI_TRANSPARENT.md) for details.
 
 ### Standard Library
 
-Built-in modules:
-- `otter:math` - Mathematical functions
-- `otter:io` - File I/O
-- `otter:time` - Time utilities
-- `otter:task` - Task-based concurrency
-- `otter:rand` - Random numbers
-- `otter:json` - JSON parsing
-- `otter:net` - Networking
-- `otter:http` - HTTP client/server
+Built-in modules (import without the `otter:` prefix):
+- `fmt` - Formatting and printing helpers
+- `math` - Mathematical functions
+- `io` - File I/O
+- `time` - Time utilities
+- `task` - Task-based concurrency
+- `rand` - Random numbers
+- `json` - JSON parsing
+- `net` - Networking
+- `http` - HTTP client/server
+
+You can import multiple modules at once using commas, and the old `otter:` prefix remains available when you want to be explicit:
+
+```otter
+use fmt, math, time
+use rust:rand
+use otter:json  # still supported
+```
 
 ### Exception Handling
 
 Modern exception handling with zero-cost success path:
 
 ```otter
-use otter:fmt
+use fmt
 
 fn divide(x: int, y: int) -> int:
     if y == 0:
@@ -330,7 +337,7 @@ The generated `.wasm` file can be run in any WebAssembly runtime (Node.js, brows
 Below are illustrative examples of how unit tests will look in OtterLang. A built-in `otter test` runner is planned (see `roadmap.md`).
 
 ```otter
-use otter:fmt
+use fmt
 
 struct User:
     id: int

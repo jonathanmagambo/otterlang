@@ -700,15 +700,15 @@ fn collect_rust_imports(program: &Program) -> HashMap<String, HashSet<String>> {
     let mut imports: HashMap<String, HashSet<String>> = HashMap::new();
 
     for statement in &program.statements {
-        if let Statement::Use { module, alias } = statement {
-            if let Some((namespace, crate_name)) = module.split_once(':') {
-                if namespace == "rust" {
-                    let aliases = imports.entry(crate_name.to_string()).or_default();
-                    // Always add the crate name as an alias
-                    aliases.insert(crate_name.to_string());
-                    // Also add any explicit alias
-                    if let Some(alias_name) = alias {
-                        aliases.insert(alias_name.clone());
+        if let Statement::Use { imports: use_imports } = statement {
+            for import in use_imports {
+                if let Some((namespace, crate_name)) = import.module.split_once(':') {
+                    if namespace == "rust" {
+                        let aliases = imports.entry(crate_name.to_string()).or_default();
+                        aliases.insert(crate_name.to_string());
+                        if let Some(alias_name) = &import.alias {
+                            aliases.insert(alias_name.clone());
+                        }
                     }
                 }
             }
@@ -1395,10 +1395,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 // Functions are already lowered in lower_program
                 Ok(())
             }
-            Statement::Use {
-                module: _,
-                alias: _,
-            } => {
+            Statement::Use { .. } => {
                 // Register module import for later resolution
                 // The actual resolution happens at the expression level when accessing module.field
                 // Module validation occurs when functions from the module are actually called

@@ -149,12 +149,18 @@ impl Formatter {
                     self.format_type(target)
                 )
             }
-            Statement::Use { module, alias } => {
-                if let Some(alias) = alias {
-                    format!("{}use {} as {}\n", self.indent(indent), module, alias)
-                } else {
-                    format!("{}use {}\n", self.indent(indent), module)
-                }
+            Statement::Use { imports } => {
+                let modules: Vec<String> = imports
+                    .iter()
+                    .map(|import| {
+                        if let Some(alias) = &import.alias {
+                            format!("{} as {}", import.module, alias)
+                        } else {
+                            import.module.clone()
+                        }
+                    })
+                    .collect();
+                format!("{}use {}\n", self.indent(indent), modules.join(", "))
             }
             Statement::Block(block) => self.format_block(block, indent),
             Statement::Try {

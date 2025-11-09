@@ -1,4 +1,4 @@
-use otter:fmt
+use fmt
 
 fn main():
     # Test regular \n escape sequence (already supported)

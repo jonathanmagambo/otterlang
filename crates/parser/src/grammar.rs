@@ -3,7 +3,7 @@ use chumsky::prelude::*;
 
 use ast::nodes::{
     BinaryOp, Block, ExceptHandler, Expr, FStringPart, Function, Literal, MatchArm, NumberLiteral,
-    Param, Pattern, Program, Statement, Type, UnaryOp,
+    Param, Pattern, Program, Statement, Type, UnaryOp, UseImport,
 };
 
 use common::Span;
@@ -745,14 +745,23 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
             module
         });
 
-    let use_stmt = just(TokenKind::Use)
-        .ignore_then(module_path)
+    let use_import = module_path
+        .clone()
         .then(
             just(TokenKind::As)
                 .ignore_then(identifier_parser())
                 .or_not(),
         )
-        .map(|(module, alias)| Statement::Use { module, alias });
+        .map(|(module, alias)| UseImport::new(module, alias));
+
+    let use_stmt = just(TokenKind::Use)
+        .ignore_then(
+            use_import
+                .separated_by(just(TokenKind::Comma))
+                .allow_trailing()
+                .at_least(1),
+        )
+        .map(|imports| Statement::Use { imports });
 
     let break_stmt = just(TokenKind::Break).map(|_| Statement::Break);
     let continue_stmt = just(TokenKind::Continue).map(|_| Statement::Continue);
@@ -1109,4 +1118,28 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         .then_ignore(newline.repeated().or_not())
         .then_ignore(just(TokenKind::Eof))
         .map(Program::new)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_multiple_use_modules() {
+        let source = "use fmt, math as m\n";
+        let tokens = lexer::tokenize(source).expect("tokenize use statement");
+        let program = parse(&tokens).expect("parse use statement");
+
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Use { imports } => {
+                assert_eq!(imports.len(), 2);
+                assert_eq!(imports[0].module, "fmt");
+                assert!(imports[0].alias.is_none());
+                assert_eq!(imports[1].module, "math");
+                assert_eq!(imports[1].alias.as_deref(), Some("m"));
+            }
+            other => panic!("expected use statement, got {:?}", other),
+        }
+    }
 }

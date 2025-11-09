@@ -1,6 +1,6 @@
 # Advanced pipeline demo rewritten for current OtterLang capabilities
 
-use otter:fmt
+use fmt
 
 fn stage_one(index: float) -> float:
     let base = index * 1.5 + 0.75
