@@ -68,6 +68,32 @@ impl From<CodegenOptLevel> for OptimizationLevel {
     }
 }
 
+fn llvm_triple_to_string(triple: &inkwell::targets::TargetTriple) -> String {
+    triple
+        .as_str()
+        .to_str()
+        .unwrap_or("unknown-unknown-unknown")
+        .to_string()
+}
+
+fn sanitize_triple(triple: &str) -> String {
+    if let Some(darwin_idx) = triple.find("darwin") {
+        let after = &triple[darwin_idx + 6..];
+        if after
+            .chars()
+            .next()
+            .map_or(false, |c| c.is_ascii_digit() || c == '.')
+        {
+            let prefix = &triple[..darwin_idx];
+            format!("{prefix}darwin")
+        } else {
+            triple.to_string()
+        }
+    } else {
+        triple.to_string()
+    }
+}
+
 pub struct BuildArtifact {
     pub binary: PathBuf,
     pub ir: Option<String>,
@@ -209,25 +235,11 @@ pub fn build_executable(
 
     // Get native target triple directly from LLVM
     let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-    let native_str = native_triple.to_string();
+    let native_str = llvm_triple_to_string(&native_triple);
 
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
-    let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
-        let after_darwin = &native_str[darwin_idx + 6..];
-        if after_darwin
-            .chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_digit() || c == '.')
-        {
-            // Version suffix found after "darwin", strip it
-            format!("arm64-apple-darwin") // Use standard format for macOS ARM
-        } else {
-            native_str.clone()
-        }
-    } else {
-        native_str.clone()
-    };
+    let triple_str = sanitize_triple(&native_str);
 
     // Create inkwell TargetTriple using triple without version suffix
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
@@ -413,25 +425,11 @@ pub fn build_shared_library(
 
     // Get native target triple directly from LLVM
     let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-    let native_str = native_triple.to_string();
+    let native_str = llvm_triple_to_string(&native_triple);
 
     // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
     // LLVM recognizes the triple without the version suffix
-    let triple_str = if let Some(darwin_idx) = native_str.find("darwin") {
-        let after_darwin = &native_str[darwin_idx + 6..];
-        if after_darwin
-            .chars()
-            .next()
-            .map_or(false, |c| c.is_ascii_digit() || c == '.')
-        {
-            // Version suffix found after "darwin", strip it
-            format!("arm64-apple-darwin") // Use standard format for macOS ARM
-        } else {
-            native_str.clone()
-        }
-    } else {
-        native_str.clone()
-    };
+    let triple_str = sanitize_triple(&native_str);
 
     // Create inkwell TargetTriple using triple without version suffix
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);

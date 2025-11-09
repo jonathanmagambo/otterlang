@@ -840,7 +840,11 @@ impl Default for TargetTriple {
     fn default() -> Self {
         // Get native target from LLVM
         let llvm_triple = inkwell::targets::TargetMachine::get_default_triple();
-        let triple_str = llvm_triple.to_string();
+        let triple_str = llvm_triple
+            .as_str()
+            .to_str()
+            .unwrap_or("unknown-unknown-unknown")
+            .to_string();
 
         // Normalize common macOS triples
         // Convert "arm64" to "aarch64" for LLVM compatibility
