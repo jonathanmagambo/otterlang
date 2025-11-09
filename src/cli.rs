@@ -594,8 +594,8 @@ fn print_timings(stage: &CompilationStage) {
 }
 
 fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
-    use crate::fmt::Formatter;
     use crate::parser::parse;
+    use fmt::Formatter;
     use glob::glob;
     use lexer::tokenize;
 
