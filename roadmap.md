@@ -1,6 +1,6 @@
 ## OtterLang Roadmap
 
-This roadmap outlines major areas of investment and their intended scope. Items are prioritized by impact and feasibility and grouped by milestone tiers. Timelines are indicative and may evolve based on feedback.
+This roadmap outlines major areas of investment and their intended scope. Items are prioritized by immediate impact and developer needs, with core language features and essential tooling coming first. Timelines are indicative and may evolve based on feedback.
 
 ### Guiding Principles
 - Simplicity first: syntax and tooling should be easy to learn and hard to misuse
@@ -10,219 +10,212 @@ This roadmap outlines major areas of investment and their intended scope. Items 
 
 ---
 
-### Milestone 1: Error Handling and Language Ergonomics
-- Result/Option return-based errors
+### Milestone 1: Core Language Features (HIGH PRIORITY)
+
+Essential language features needed for practical development.
+
+- **Error Handling**
   - Add `Result<T, E>` and `Option<T>` as first-class types
-  - Standard library helpers for mapping/combining results
-  - CLI and formatter awareness
-- Syntactic sugar for simplicity
   - `?` operator to early-return on error from `Result<T, E>`
-  - `try` expression support for concise error flows
-- Fatal internal errors
+  - Standard library helpers for mapping/combining results
   - `panic`/`raise` for unrecoverable states with backtrace hooks
-- Pattern matching integration
+  
+- **Pattern Matching**
   - Exhaustive `match` on `Result`/`Option` and algebraic data types
   - Destructuring and guards in `match` arms
+  - Type-safe pattern matching with compile-time exhaustiveness checking
+  
+- **Type System Improvements**
+  - Better type inference (reduce need for explicit type annotations)
+  - Strong type aliases (newtype pattern): `type UserId = int`
+  - Enhanced type error messages with suggestions
 
-### Milestone 2: Runtime and JIT Capabilities
-- Per-function JIT
-  - Julia-style per-function JIT for hot paths
-  - Tiered execution (interp/JIT/native) with profiling feedback
-  - Manual JIT control for predictable AOT performance with optional dynamic compilation
-    - Explicit `jit` annotation for functions requiring JIT compilation
-    - Allows predictable ahead-of-time speed for most code with JIT available for specific dynamic tasks
-- Live module loading
-  - Reloadable modules for REPL and long-lived processes
-  - Stable ABI for safe hot-swapping within a process
+### Milestone 2: Essential Developer Experience (HIGH PRIORITY)
 
-### Milestone 2.5: Embeddable Runtime and Sandbox
-- Bytecode interpreter and VM
-  - Lightweight bytecode format for embedded use cases
-  - Deterministic execution mode for reproducible behavior
-  - Low memory footprint suitable for game engines
-- Sandboxed execution environment
-  - Capability-based security model (filesystem, network, time access)
-  - Resource limits (memory, CPU, execution time)
-  - Isolation between embedded OtterLang instances
-- Rust host integration
-  - C-compatible FFI for embedding in C/C++ projects
-  - Safe Rust API for creating and managing VM instances
-  - Callback system for host-to-guest and guest-to-host communication
-- Game engine integration
-  - Plugin system for embedding in game engines and applications
-  - Native plugin compatibility via C API
-- WASM target for safe embedding
-  - Compile OtterLang to WebAssembly for browser and WASM runtimes
-  - Sandboxed execution in WASM environments
+Critical tooling needed for daily development workflow.
 
-### Milestone 2.6: Embedded Development Features
-- Strong type aliases (newtype pattern)
-  - Create distinct types from base types (e.g., `UserId` from `int`, `FileDescriptor` from `int`)
-  - Compile-time type checking prevents mixing semantically different types
-  - Zero-cost abstraction: no runtime overhead, purely compile-time safety
-  - Syntax: `type UserId = int` creates a strong alias (distinct from `int`)
-- Defer statement for resource management
-  - `defer` keyword ensures cleanup code runs when function exits (normal return or error)
-  - Simplifies resource management (file handles, database connections, locks)
-  - Multiple defer statements execute in reverse order (LIFO)
-  - Complements error handling by guaranteeing cleanup even on early returns
-- Critical section blocks
-  - Built-in atomic block syntax for thread/coroutine-safe code sections
-  - Ensures code runs without interruption for shared data structure updates
-  - Prevents common concurrency bugs with clear, explicit syntax
-  - Compiler-enforced synchronization guarantees
-- Memory section control
-  - Syntax to explicitly control variable placement in memory sections
-  - Place large constant lookup tables in read-only sections (`.rodata`) instead of RAM
-  - Support for `.data`, `.bss`, `.rodata`, and custom linker sections
-  - Critical for embedded systems with limited RAM and strict memory constraints
-- Cleaner bit manipulation syntax
-  - Built-in syntax for common bit operations (set, clear, toggle, test bits)
-  - Replace error-prone patterns like `CONFIG_REGISTER |= (1 << 5)` with readable syntax
-  - Type-safe bit field operations with compile-time validation
-  - Improves readability and reduces bugs in low-level embedded code
-
-### Milestone 3: Tooling and Developer Experience
-- Testing framework
+- **Testing Framework**
   - Built-in test runner (`otter test`) and assertion library
+  - Test discovery and execution
   - Snapshot testing hooks and timing output
-- Package manager (otterpkg)
+  - Clear error reporting with diffs and spans
+  
+- **Improved Diagnostics**
+  - Rich error messages with spans and suggestions
+  - Better type error reporting
+  - Compiler suggestions for common mistakes
+  
+- **Formatter and LSP Basics**
+  - Incremental formatter improvements
+  - First-party LSP features (hover, go-to-def, diagnostics)
+  - Syntax highlighting and basic autocomplete
+
+### Milestone 3: Package Management and Ecosystem (HIGH PRIORITY)
+
+Necessary for building real-world projects and sharing code.
+
+- **Package Manager (otterpkg)**
   - Dependency resolution and version management
   - Local and remote package registry support
   - Lockfile generation and reproducible builds
   - Integration with `otter build` and module system
   - Project manifest (`Otter.toml`) for package metadata, dependencies, scripts, and targets
-- Documentation and website
-  - Official documentation site with search and examples
-  - Interactive API reference with live code samples
-  - Tutorials and guides for common use cases
-  - Package registry browser and search
-- Diagnostics and observability
-  - Rich error messages with spans and suggestions
-  - Built-in tracing and structured logs
-- Formatter and LSP
-  - Incremental formatter improvements
-  - First-party LSP features (hover, go-to-def, diagnostics)
-
-### Milestone 4: Compile-Time Evaluation and Optimization
-
-This milestone focuses on advanced compile-time optimizations that enable zero-cost abstractions and predictable high performance.
-
-- **Compile-time evaluation system**
-  - `@compile` function annotations for compile-time execution with zero runtime cost
-  - Compile-time metaprogramming in OtterLang itself (not just Rust macros)
-  - Generics implemented as compile-time functions (e.g., `List[T]` expands at compile time)
-  - Zero-cost abstractions: decorators, property descriptors, custom operators
-  - Example: `@compile fn generate_type(T: Type) -> Type { ... }`
   
-- **Partial evaluation and constant propagation**
+- **Standard Library Expansion**
+  - Collections improvements (more methods, better ergonomics)
+  - Iterators and iterator adapters
+  - IO/FS/Net ergonomics and safety improvements
+  - Async utilities and better concurrency primitives
+
+### Milestone 4: Performance Optimizations (MEDIUM PRIORITY)
+
+Important optimizations that improve runtime performance.
+
+- **Static Dispatch Optimization**
+  - Compile-time method resolution for known types (no runtime vtable lookup)
+  - Operator overloading resolved statically based on static types
+  - Direct function calls instead of dynamic dispatch when types are known
+  - Opt-in dynamic dispatch via `dynamic` type when needed
+  
+- **Partial Evaluation and Constant Propagation**
   - Automatic identification of compile-time evaluable expressions
   - Eager evaluation of all statically known expressions during compilation
   - Guaranteed constant folding for statically known values
   - Eliminates runtime overhead for operations on compile-time constants
   
-- **Module freezing and static optimization**
+- **Module Freezing and Static Optimization**
   - Freeze global constants and module-level data after initialization phase
   - Aggressive constant propagation and dead code elimination
   - Static module resolution: all imports resolved at compile time
   - Immutable module/class hierarchy after initialization enables better optimization
   
-- **Static dispatch optimization**
-  - Compile-time method resolution for known types (no runtime vtable lookup)
-  - Operator overloading resolved statically based on static types
-  - Direct function calls instead of dynamic dispatch when types are known
-  - Opt-in dynamic dispatch via `dynamic` type when needed for flexibility
-  
-- **Enhanced type system soundness**
+- **Enhanced Type System Soundness**
   - Runtime type checks for soundness guarantees
   - Type-checked code cannot have runtime type errors (mathematical guarantee)
   - Better integration between static and runtime type checking
   - Predictable performance: no "performance cliffs" from subtle code changes
 
-### Milestone 5: Libraries and Ecosystem
-- Standard library depth
-  - Collections, iterators, async utilities
-  - IO/FS/Net ergonomics and safety improvements
-- FFI bridges
-  - Wider crate support and improved metadata extraction
-  - Sandboxed loading and permission controls
+### Milestone 5: Advanced Language Features (MEDIUM PRIORITY)
+
+Powerful features that enable advanced use cases.
+
+- **Compile-Time Evaluation System**
+  - `@compile` function annotations for compile-time execution with zero runtime cost
+  - Compile-time metaprogramming in OtterLang itself (not just Rust macros)
+  - Generics implemented as compile-time functions (e.g., `List[T]` expands at compile time)
+  - Zero-cost abstractions: decorators, property descriptors, custom operators
+  
+- **Resource Management**
+  - `defer` statement for guaranteed cleanup (file handles, database connections, locks)
+  - Multiple defer statements execute in reverse order (LIFO)
+  - Complements error handling by guaranteeing cleanup even on early returns
+
+### Milestone 6: Advanced Runtime Features (LOW PRIORITY)
+
+Specialized runtime capabilities for specific use cases.
+
+- **Per-function JIT**
+  - Julia-style per-function JIT for hot paths
+  - Tiered execution (interp/JIT/native) with profiling feedback
+  - Manual JIT control for predictable AOT performance with optional dynamic compilation
+  - Explicit `jit` annotation for functions requiring JIT compilation
+  
+- **Live Module Loading**
+  - Reloadable modules for REPL and long-lived processes
+  - Stable ABI for safe hot-swapping within a process
+
+### Milestone 7: Embedded and Specialized Features (LOW PRIORITY)
+
+Features for specific domains and use cases.
+
+- **Embedded Development Features**
+  - Memory section control: explicit variable placement in memory sections (`.rodata`, `.data`, `.bss`)
+  - Cleaner bit manipulation syntax (set, clear, toggle, test bits)
+  - Type-safe bit field operations with compile-time validation
+  - Critical section blocks for thread/coroutine-safe code sections
+  
+- **Embeddable Runtime and Sandbox**
+  - Bytecode interpreter and VM for embedded use cases
+  - Sandboxed execution environment with capability-based security
+  - Resource limits (memory, CPU, execution time)
+  - Rust host integration with safe API for creating and managing VM instances
+  - Game engine integration and plugin system
+
+### Milestone 8: Documentation and Community (ONGOING)
+
+Essential for adoption and community growth.
+
+- **Documentation and Website**
+  - Official documentation site with search and examples
+  - Interactive API reference with live code samples
+  - Tutorials and guides for common use cases
+  - Package registry browser and search
+  
+- **Observability**
+  - Built-in tracing and structured logs
+  - Performance profiling tools
 
 ---
 
 ### Acceptance Criteria (Examples)
-- Error handling
-  - A function returning `Result<T, E>` can be composed with `?`
-  - `match` on `Result` is exhaustive and type-checked
-- JIT
-  - A hot function receives JIT compilation with measurable speedup
-  - Live module swapping retains state isolation guarantees
-- Embeddable runtime
-  - VM can be instantiated from Rust with configurable sandbox permissions
-  - OtterLang code runs in isolated environment with resource limits
-  - Plugin system successfully loads and executes OtterLang scripts in host applications
-  - WASM-compiled OtterLang runs in browser with sandboxed I/O
-- Embedded development features
-  - Strong type aliases prevent type confusion at compile time (e.g., `UserId` ≠ `ProductId` even if both are `int`)
-  - `defer` statements guarantee resource cleanup even on error paths
-  - Critical section blocks provide thread-safe code execution
-  - Memory section control allows explicit placement of data in read-only sections
-  - Bit manipulation syntax is readable and type-safe (no more `|= (1 << 5)` patterns)
-- Testing
-  - `otter test` discovers and runs tests, returning non-zero on failure
-  - Assertions report clear diffs and spans
-- Package manager
-  - `otterpkg init` creates a new project with dependencies
-  - `otterpkg add <package>` resolves and installs dependencies
-  - `otterpkg build` uses lockfile for reproducible builds
-  - `Otter.toml` is parsed and validated (name, version, deps, scripts, targets)
-  - `otterpkg run <script>` executes scripts defined in `Otter.toml`
-- Documentation
-  - Website hosts searchable docs with interactive examples
-  - Package registry is browsable and searchable
-- Compile-time evaluation
-  - `@compile` functions execute during compilation and produce no runtime code
-  - Generics work as compile-time functions (e.g., `List[T]` expands at compile time)
-  - Compile-time evaluable expressions are fully evaluated during compilation
-  - Static dispatch resolves method calls at compile time for known types
-  - Module freezing prevents mutation of globals after initialization
-  - Type-checked code has runtime type safety guarantees
+
+**Milestone 1: Core Language Features**
+- Error handling: A function returning `Result<T, E>` can be composed with `?`
+- Pattern matching: `match` on `Result`/`Option` is exhaustive and type-checked
+- Type system: Strong type aliases prevent type confusion at compile time (e.g., `UserId` ≠ `ProductId` even if both are `int`)
+
+**Milestone 2: Essential Developer Experience**
+- Testing: `otter test` discovers and runs tests, returning non-zero on failure
+- Testing: Assertions report clear diffs and spans
+- Diagnostics: Error messages include spans, suggestions, and context
+
+**Milestone 3: Package Management and Ecosystem**
+- Package manager: `otterpkg init` creates a new project with dependencies
+- Package manager: `otterpkg add <package>` resolves and installs dependencies
+- Package manager: `otterpkg build` uses lockfile for reproducible builds
+- Package manager: `Otter.toml` is parsed and validated (name, version, deps, scripts, targets)
+- Package manager: `otterpkg run <script>` executes scripts defined in `Otter.toml`
+
+**Milestone 4: Performance Optimizations**
+- Static dispatch: Method calls resolved at compile time for known types produce direct function calls
+- Constant propagation: Compile-time evaluable expressions are fully evaluated during compilation
+- Module freezing: Globals cannot be mutated after initialization phase
+- Type soundness: Type-checked code has runtime type safety guarantees
+
+**Milestone 5: Advanced Language Features**
+- Compile-time evaluation: `@compile` functions execute during compilation and produce no runtime code
+- Compile-time evaluation: Generics work as compile-time functions (e.g., `List[T]` expands at compile time)
+- Resource management: `defer` statements guarantee resource cleanup even on error paths
+
+**Milestone 6: Advanced Runtime Features**
+- JIT: A hot function receives JIT compilation with measurable speedup
+- Live module loading: Module swapping retains state isolation guarantees
+
+**Milestone 7: Embedded and Specialized Features**
+- Embedded: Memory section control allows explicit placement of data in read-only sections
+- Embedded: Bit manipulation syntax is readable and type-safe (no more `|= (1 << 5)` patterns)
+- Embeddable runtime: VM can be instantiated from Rust with configurable sandbox permissions
+- Embeddable runtime: OtterLang code runs in isolated environment with resource limits
 
 ---
 
-## Key Improvements and Enhancements
+## Priority Summary
 
-Areas where OtterLang can be enhanced to achieve better performance, type safety, and developer experience:
+**Immediate Focus (Milestones 1-3):**
+- Core language features (error handling, pattern matching, type system)
+- Essential developer tooling (testing, diagnostics, LSP)
+- Package management and ecosystem basics
 
-1. **Compile-Time Evaluation System**
-   - Add `@compile` or `@const` annotations for compile-time evaluation
-   - Enable metaprogramming in OtterLang itself (not just Rust macros)
-   - Implement generics as compile-time functions
-   - Allow zero-cost abstractions like decorators, property descriptors
-   - **Status**: Planned in Milestone 4
+These milestones provide the foundation for practical OtterLang development and enable real-world projects.
 
-2. **Module Freezing After Initialization**
-   - Freeze global constants and module-level data after initialization
-   - Enable aggressive constant propagation and dead code elimination
-   - Improve cache locality by making more data immutable
-   - **Status**: Planned in Milestone 4
+**Near-term (Milestones 4-5):**
+- Performance optimizations for better runtime speed
+- Advanced language features for power users
 
-3. **Static Dispatch Optimization**
-   - Resolve method calls at compile time when types are known
-   - Keep dynamic dispatch as opt-in via `dynamic` type
-   - Optimize operator overloading based on static types
-   - **Status**: Planned in Milestone 4
-
-4. **Enhanced Type System Soundness**
-   - Add runtime type checks for soundness guarantees
-   - Ensure type-checked code cannot have runtime type errors
-   - Better integration between static and runtime type checking
-   - **Status**: Planned in Milestone 4
-
-5. **Partial Evaluation System**
-   - Implement automatic partial evaluation of statically known expressions
-   - Identify compile-time evaluable expressions automatically
-   - Optimize away all compile-time operations during compilation
-   - **Status**: Planned in Milestone 4
+**Long-term (Milestones 6-8):**
+- Specialized runtime features (JIT, live reloading)
+- Domain-specific features (embedded development, sandboxing)
+- Documentation and community resources
 
 ---
 
