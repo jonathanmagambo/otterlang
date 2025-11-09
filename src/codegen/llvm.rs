@@ -233,34 +233,42 @@ pub fn build_executable(
     // Initialize all LLVM targets before creating any target triples
     Target::initialize_all(&InitializationConfig::default());
 
-    // Get native target triple directly from LLVM
-    let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-    let native_str = llvm_triple_to_string(&native_triple);
+    // Determine target triple: use provided target or fall back to native
+    let runtime_triple = if let Some(ref target) = options.target {
+        target.clone()
+    } else {
+        // Get native target triple directly from LLVM
+        let native_triple = inkwell::targets::TargetMachine::get_default_triple();
+        let native_str = llvm_triple_to_string(&native_triple);
+        TargetTriple::parse(&native_str)
+            .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")))
+    };
 
-    // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
-    // LLVM recognizes the triple without the version suffix
-    let triple_str = sanitize_triple(&native_str);
-
-    // Create inkwell TargetTriple using triple without version suffix
+    // Convert to LLVM triple format
+    let triple_str = runtime_triple.to_llvm_triple();
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
     let target = Target::from_triple(&llvm_triple).map_err(|e| {
         anyhow!(
-            "failed to create target from triple {} (original: {}): {e}",
-            triple_str,
-            native_str
+            "failed to create target from triple {}: {e}",
+            triple_str
         )
     })?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
+    let reloc_mode = if runtime_triple.is_wasm() {
+        RelocMode::PIC
+    } else {
+        RelocMode::Default
+    };
     let target_machine = target
         .create_target_machine(
             &llvm_triple,
             "generic",
             "",
             optimization,
-            RelocMode::Default,
+            reloc_mode,
             CodeModel::Default,
         )
         .ok_or_else(|| anyhow!("failed to create target machine"))?;
@@ -287,40 +295,39 @@ pub fn build_executable(
         })?;
 
     // Create a C runtime shim for the FFI functions (target-specific)
-    let runtime_c = output.with_extension("runtime.c");
-    // Parse native triple for runtime code generation
-    let runtime_triple = TargetTriple::parse(&native_str)
-        .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")));
-    let runtime_c_content = runtime_triple.runtime_c_code();
-    fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
-
-    // Compile the runtime C file (target-specific)
-    let runtime_o = output.with_extension("runtime.o");
-    let c_compiler = runtime_triple.c_compiler();
-    let mut cc = Command::new(&c_compiler);
-
-    // Add target-specific compiler flags
-    if runtime_triple.is_wasm() {
-        // For WebAssembly, use clang with target flag
-        cc.arg("--target").arg(&native_str).arg("-c");
+    let runtime_c = if runtime_triple.is_wasm() {
+        None
     } else {
+        let runtime_c = output.with_extension("runtime.c");
+        let runtime_c_content = runtime_triple.runtime_c_code();
+        fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
+        Some(runtime_c)
+    };
+
+    // Compile runtime C file (target-specific)
+    let runtime_o = if let Some(ref rt_c) = runtime_c {
+        let runtime_o = output.with_extension("runtime.o");
+        let c_compiler = runtime_triple.c_compiler();
+        let mut cc = Command::new(&c_compiler);
+
+        // Add target-specific compiler flags
         cc.arg("-c");
         if runtime_triple.needs_pic() && !runtime_triple.is_windows() {
             cc.arg("-fPIC");
         }
         // Add target triple for cross-compilation
-        if options.target.is_some() {
-            cc.arg("--target").arg(&native_str);
+        cc.arg("--target").arg(&triple_str);
+
+        cc.arg(rt_c).arg("-o").arg(&runtime_o);
+
+        let cc_status = cc.status().context("failed to compile runtime C file")?;
+
+        if !cc_status.success() {
+            bail!("failed to compile runtime C file");
         }
-    }
 
-    cc.arg(&runtime_c).arg("-o").arg(&runtime_o);
-
-    let cc_status = cc.status().context("failed to compile runtime C file")?;
-
-    if !cc_status.success() {
-        bail!("failed to compile runtime C file");
-    }
+        Some(runtime_o)
+    };
 
     // Link the object files together (target-specific)
     let linker = runtime_triple.linker();
@@ -330,7 +337,7 @@ pub fn build_executable(
     if runtime_triple.is_wasm() {
         // WebAssembly linking
         cc.arg("--target")
-            .arg(&native_str)
+            .arg(&triple_str)
             .arg("--no-entry")
             .arg("--export-dynamic")
             .arg(&object_path)
@@ -338,10 +345,12 @@ pub fn build_executable(
             .arg(output);
     } else {
         // Standard linking
-        if options.target.is_some() {
-            cc.arg("--target").arg(&native_str);
+        cc.arg("--target").arg(&triple_str);
+        if let Some(ref rt_o) = runtime_o {
+            cc.arg(&object_path).arg(rt_o).arg("-o").arg(output);
+        } else {
+            cc.arg(&object_path).arg("-o").arg(output);
         }
-        cc.arg(&object_path).arg(&runtime_o).arg("-o").arg(output);
     }
 
     // Apply target-specific linker flags
@@ -385,8 +394,12 @@ pub fn build_executable(
     }
 
     // Clean up temporary files
-    fs::remove_file(&runtime_c).ok();
-    fs::remove_file(&runtime_o).ok();
+    if let Some(ref rt_c) = runtime_c {
+        fs::remove_file(rt_c).ok();
+    }
+    if let Some(ref rt_o) = runtime_o {
+        fs::remove_file(rt_o).ok();
+    }
 
     fs::remove_file(&object_path).ok();
 
@@ -423,34 +436,42 @@ pub fn build_shared_library(
     // Initialize all LLVM targets before creating any target triples
     Target::initialize_all(&InitializationConfig::default());
 
-    // Get native target triple directly from LLVM
-    let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-    let native_str = llvm_triple_to_string(&native_triple);
+    // Determine target triple: use provided target or fall back to native
+    let runtime_triple = if let Some(ref target) = options.target {
+        target.clone()
+    } else {
+        // Get native target triple directly from LLVM
+        let native_triple = inkwell::targets::TargetMachine::get_default_triple();
+        let native_str = llvm_triple_to_string(&native_triple);
+        TargetTriple::parse(&native_str)
+            .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")))
+    };
 
-    // Strip version suffix from triple (e.g., "arm64-apple-darwin25.0.0" -> "arm64-apple-darwin")
-    // LLVM recognizes the triple without the version suffix
-    let triple_str = sanitize_triple(&native_str);
-
-    // Create inkwell TargetTriple using triple without version suffix
+    // Convert to LLVM triple format
+    let triple_str = runtime_triple.to_llvm_triple();
     let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
     compiler.module.set_triple(&llvm_triple);
 
     let target = Target::from_triple(&llvm_triple).map_err(|e| {
         anyhow!(
-            "failed to create target from triple {} (original: {}): {e}",
-            triple_str,
-            native_str
+            "failed to create target from triple {}: {e}",
+            triple_str
         )
     })?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
+    let reloc_mode = if runtime_triple.is_wasm() {
+        RelocMode::PIC
+    } else {
+        RelocMode::PIC // Use PIC for shared libraries
+    };
     let target_machine = target
         .create_target_machine(
             &llvm_triple,
             "generic",
             "",
             optimization,
-            RelocMode::PIC, // Use PIC for shared libraries
+            reloc_mode,
             CodeModel::Default,
         )
         .ok_or_else(|| anyhow!("failed to create target machine"))?;
@@ -478,38 +499,40 @@ pub fn build_shared_library(
         })?;
 
     // Create runtime C file (target-specific)
-    let runtime_c = output.with_extension("runtime.c");
-    // Parse native triple for runtime code generation
-    let runtime_triple = TargetTriple::parse(&native_str)
-        .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")));
-    let runtime_c_content = runtime_triple.runtime_c_code();
-    fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
+    let runtime_c = if runtime_triple.is_wasm() {
+        None
+    } else {
+        let runtime_c = output.with_extension("runtime.c");
+        let runtime_c_content = runtime_triple.runtime_c_code();
+        fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
+        Some(runtime_c)
+    };
 
     // Compile runtime C file (target-specific)
-    let runtime_o = output.with_extension("runtime.o");
-    let c_compiler = runtime_triple.c_compiler();
-    let mut cc = Command::new(&c_compiler);
+    let runtime_o = if let Some(ref rt_c) = runtime_c {
+        let runtime_o = output.with_extension("runtime.o");
+        let c_compiler = runtime_triple.c_compiler();
+        let mut cc = Command::new(&c_compiler);
 
-    // Add target-specific compiler flags
-    if runtime_triple.is_wasm() {
-        cc.arg("--target").arg(&native_str).arg("-c");
-    } else {
+        // Add target-specific compiler flags
         cc.arg("-c");
         if runtime_triple.needs_pic() && !runtime_triple.is_windows() {
             cc.arg("-fPIC");
         }
-        if options.target.is_some() {
-            cc.arg("--target").arg(&native_str);
+        cc.arg("--target").arg(&triple_str);
+
+        cc.arg(rt_c).arg("-o").arg(&runtime_o);
+
+        let cc_status = cc.status().context("failed to compile runtime C file")?;
+
+        if !cc_status.success() {
+            bail!("failed to compile runtime C file");
         }
-    }
 
-    cc.arg(&runtime_c).arg("-o").arg(&runtime_o);
-
-    let cc_status = cc.status().context("failed to compile runtime C file")?;
-
-    if !cc_status.success() {
-        bail!("failed to compile runtime C file");
-    }
+        Some(runtime_o)
+    } else {
+        None
+    };
 
     // Determine shared library extension (target-specific)
     let lib_ext = if runtime_triple.is_wasm() {
@@ -534,7 +557,7 @@ pub fn build_shared_library(
 
     if runtime_triple.is_wasm() {
         cc.arg("--target")
-            .arg(&native_str)
+            .arg(&triple_str)
             .arg("--no-entry")
             .arg("--export-dynamic")
             .arg("-o")
@@ -545,13 +568,12 @@ pub fn build_shared_library(
         if runtime_triple.needs_pic() {
             cc.arg("-fPIC");
         }
+        cc.arg("--target").arg(&triple_str);
         cc.arg("-o")
             .arg(&lib_path)
-            .arg(&object_path)
-            .arg(&runtime_o);
-
-        if options.target.is_some() {
-            cc.arg("--target").arg(&native_str);
+            .arg(&object_path);
+        if let Some(ref rt_o) = runtime_o {
+            cc.arg(rt_o);
         }
     }
 
@@ -596,8 +618,12 @@ pub fn build_shared_library(
     }
 
     // Clean up temporary files
-    fs::remove_file(&runtime_c).ok();
-    fs::remove_file(&runtime_o).ok();
+    if let Some(ref rt_c) = runtime_c {
+        fs::remove_file(rt_c).ok();
+    }
+    if let Some(ref rt_o) = runtime_o {
+        fs::remove_file(rt_o).ok();
+    }
     fs::remove_file(&object_path).ok();
 
     Ok(BuildArtifact {
