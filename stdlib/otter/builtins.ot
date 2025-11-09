@@ -108,6 +108,12 @@ fn error_message(error: Error) -> string:
 fn defer_func(func):
     defer(func)
 
+fn select(cases: List, default: any) -> int:
+    return select(cases, default)
+
+fn select_case(channel: int, is_send: bool, value: any) -> SelectCase:
+    return select.case(channel, is_send, value)
+
 fn type_of(x: any) -> string:
     if type_of(x) == "string":
         return type_of<string>(x)

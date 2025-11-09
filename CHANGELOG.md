@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `enum` keyword with parser, formatter, and type checker support for user-defined tagged unions
-- `otter.core` standard library module that provides `Option` and `Result` as normal enums
+- `core` standard library module (also accessible as `otter:core`) that provides `Option` and `Result` as normal enums
 - `examples/basic/enum_demo.ot` showcasing enum construction and pattern matching
 - Promoted the `str()` helper to a builtin (with `stringify()` retained as a deprecated alias) and updated docs + samples to favor f-strings
 - Moved `print`/`println`/`eprintln` into the `io` module and deprecated the old `fmt` shims

@@ -29,10 +29,6 @@ impl ModulePath {
                 "rust" => Ok(ModulePath::Rust(name.to_string())),
                 _ => bail!("unknown module namespace: {}", namespace),
             }
-        } else if let Some(rest) = module.strip_prefix("otter.") {
-            Ok(ModulePath::Stdlib(rest.to_string()))
-        } else if let Some(rest) = module.strip_prefix("otter/") {
-            Ok(ModulePath::Stdlib(rest.to_string()))
         } else if module.starts_with('/') {
             Ok(ModulePath::Absolute(PathBuf::from(module)))
         } else if module.starts_with("./") || module.starts_with("../") {
@@ -273,12 +269,8 @@ mod tests {
         let path = ModulePath::from_string("io", &source_dir).unwrap();
         assert!(matches!(path, ModulePath::Unqualified(name) if name == "io"));
 
-        // Test dot-stdlib shorthand
-        let path = ModulePath::from_string("otter.core", &source_dir).unwrap();
-        assert!(matches!(path, ModulePath::Stdlib(name) if name == "core"));
-
-        // Test slash shorthand
-        let path = ModulePath::from_string("otter/core", &source_dir).unwrap();
+        // Explicit stdlib namespace
+        let path = ModulePath::from_string("otter:core", &source_dir).unwrap();
         assert!(matches!(path, ModulePath::Stdlib(name) if name == "core"));
     }
 

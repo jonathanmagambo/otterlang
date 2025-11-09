@@ -550,41 +550,40 @@ fn expr_parser() -> impl Parser<TokenKind, Expr, Error = Simple<TokenKind>> {
 
         // Pythonic match expression: match expr: case pattern: body
         let newline = just(TokenKind::Newline).repeated().at_least(1);
+        let match_case = just(TokenKind::Case)
+            .ignore_then(pattern_parser(expr.clone()))
+            .then_ignore(just(TokenKind::Colon))
+            .then_ignore(newline.clone())
+            .then_ignore(just(TokenKind::Indent))
+            .then(
+                logical
+                    .clone()
+                    .then_ignore(newline.clone())
+                    .repeated()
+                    .at_least(1)
+                    .map(|exprs| {
+                        // Take the last expression as the body
+                        exprs
+                            .last()
+                            .cloned()
+                            .unwrap_or_else(|| Expr::Literal(Literal::Unit))
+                    }),
+            )
+            .then_ignore(just(TokenKind::Dedent))
+            .map(|(pattern, body)| MatchArm {
+                pattern,
+                guard: None,
+                body,
+            })
+            .then_ignore(newline.clone().or_not());
+
         let match_expr = just(TokenKind::Match)
             .ignore_then(logical.clone())
             .then(
                 just(TokenKind::Colon)
                     .ignore_then(newline.clone())
                     .ignore_then(just(TokenKind::Indent))
-                    .ignore_then(
-                        just(TokenKind::Case)
-                            .ignore_then(pattern_parser(expr.clone()))
-                            .then_ignore(just(TokenKind::Colon))
-                            .then_ignore(newline.clone())
-                            .then_ignore(just(TokenKind::Indent))
-                            .then(
-                                logical
-                                    .clone()
-                                    .then_ignore(newline.clone())
-                                    .repeated()
-                                    .at_least(1)
-                                    .map(|exprs| {
-                                        // Take the last expression as the body
-                                        exprs
-                                            .last()
-                                            .cloned()
-                                            .unwrap_or_else(|| Expr::Literal(Literal::Unit))
-                                    }),
-                            )
-                            .then_ignore(just(TokenKind::Dedent))
-                            .map(|(pattern, body)| MatchArm {
-                                pattern,
-                                guard: None,
-                                body,
-                            })
-                            .separated_by(newline.clone())
-                            .at_least(1),
-                    )
+                    .ignore_then(match_case.repeated().at_least(1))
                     .then_ignore(just(TokenKind::Dedent)),
             )
             .map(|(value, arms)| Expr::Match {
@@ -645,13 +644,11 @@ fn pattern_parser(
                             .separated_by(just(TokenKind::Comma))
                             .allow_trailing(),
                     )
-                    .then_ignore(just(TokenKind::RBrace))
-                    .or_not(),
+                    .then_ignore(just(TokenKind::RBrace)),
             )
             .map(|(name, fields)| Pattern::Struct {
                 name,
                 fields: fields
-                    .unwrap_or_default()
                     .into_iter()
                     .map(|(fname, pat)| (fname, pat))
                     .collect(),
@@ -745,7 +742,6 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
     let path_separator = choice((
         just(TokenKind::Slash).to("/".to_string()),
         just(TokenKind::Colon).to(":".to_string()),
-        just(TokenKind::Dot).to(".".to_string()),
     ));
 
     let module_path = path_segment
@@ -1206,9 +1202,32 @@ mod tests {
     }
 
     #[test]
+    fn parses_otter_namespace_use() {
+        let source = "use otter:core\n";
+        let tokens = lexer::tokenize(source).expect("tokenize namespace use");
+        let program = parse(&tokens).expect("parse namespace use");
+
+        assert_eq!(program.statements.len(), 1);
+        match &program.statements[0] {
+            Statement::Use { imports } => {
+                assert_eq!(imports.len(), 1);
+                assert_eq!(imports[0].module, "otter:core");
+            }
+            other => panic!("expected use statement, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn parses_core_stdlib_module() {
         let source = include_str!("../../../stdlib/otter/core.ot");
         let tokens = lexer::tokenize(source).expect("tokenize core module");
         parse(&tokens).expect("parse core module");
+    }
+
+    #[test]
+    fn parses_enum_demo_example() {
+        let source = include_str!("../../../examples/basic/enum_demo.ot");
+        let tokens = lexer::tokenize(source).expect("tokenize enum demo");
+        parse(&tokens).expect("parse enum demo");
     }
 }

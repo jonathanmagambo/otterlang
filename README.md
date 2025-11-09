@@ -183,7 +183,7 @@ pub enum Option<T>:
     Some: (T)
     None
 
-use otter.core
+use core
 
 def divide(x: float, y: float) -> Result<float, str>:
     if y == 0:
@@ -207,7 +207,7 @@ def main():
             print("no value")
 ```
 
-The standard library now ships `Option` and `Result` as regular enums in `otter.core`, so you can `use otter.core` to pull them in instead of relying on hard-coded compiler types.
+The standard library now ships `Option` and `Result` as regular enums in `core`, so you can `use core` (or explicitly `use otter:core`) to pull them in instead of relying on hard-coded compiler types.
 
 ### Transparent Rust FFI
 

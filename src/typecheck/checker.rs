@@ -13,6 +13,8 @@ pub struct TypeChecker {
     registry: Option<&'static SymbolRegistry>,
     expr_types: HashMap<usize, TypeInfo>,
     features: LanguageFeatureFlags,
+    /// Current function's return type (if inside a function)
+    current_function_return_type: Option<TypeInfo>,
 }
 
 impl TypeChecker {
@@ -58,6 +60,7 @@ impl TypeChecker {
             registry: None,
             expr_types: HashMap::new(),
             features,
+            current_function_return_type: None,
         }
     }
 
@@ -334,6 +337,13 @@ impl TypeChecker {
 
     /// Type check a function
     fn check_function(&mut self, function: &Function) -> Result<()> {
+        // Determine function return type
+        let return_type = if let Some(ret_ty) = &function.ret_ty {
+            self.context.type_from_annotation(ret_ty)
+        } else {
+            TypeInfo::Unit
+        };
+
         let mut fn_context = TypeContext::with_features(self.features.clone());
 
         // Add function parameters to context
@@ -355,10 +365,12 @@ impl TypeChecker {
         fn_context.type_aliases = self.context.type_aliases.clone();
         fn_context.enums = self.context.enums.clone();
 
-        // Type check function body
+        // Type check function body with return type tracking
         let old_context = std::mem::replace(&mut self.context, fn_context);
+        let old_return_type = std::mem::replace(&mut self.current_function_return_type, Some(return_type));
         let result = self.check_block(&function.body);
         self.context = old_context;
+        self.current_function_return_type = old_return_type;
 
         result
     }
@@ -590,64 +602,258 @@ impl TypeChecker {
         }
     }
 
-    fn validate_pattern_against_type(&mut self, pattern: &ast::nodes::Pattern, ty: &TypeInfo) {
+    /// Bind variables from a pattern into the type checking context
+    fn bind_pattern_variables(&mut self, pattern: &ast::nodes::Pattern, ty: &TypeInfo) {
         match pattern {
+            ast::nodes::Pattern::Identifier(name) => {
+                // Simple identifier pattern binds the whole value
+                self.context.insert_variable(name.clone(), ty.clone());
+            }
             ast::nodes::Pattern::EnumVariant {
                 enum_name,
                 variant,
                 fields,
             } => {
-                if let Some(definition) = self.context.get_enum(enum_name) {
-                    if let Some(declared_variant) = definition
-                        .variants
-                        .iter()
-                        .find(|decl| decl.name == *variant)
-                    {
-                        if let TypeInfo::Enum { name, .. } = ty {
-                            if name != enum_name {
-                                self.errors.push(TypeError::new(format!(
-                                    "pattern '{}' does not match enum type {}",
-                                    enum_name, name
-                                )));
+                // Get variant info from the concrete enum type (with generics already substituted)
+                // Strategy: Try to build the enum type directly from the pattern's enum name
+                // This works even if the type is still Generic after normalization
+                let mut bound = false;
+                
+                // First, check if the type is already an Enum
+                if let TypeInfo::Enum { variants, .. } = &ty {
+                    if let Some(variant_info) = variants.get(variant) {
+                        if fields.len() == variant_info.fields.len() {
+                            for (field_pattern, field_type) in fields.iter().zip(variant_info.fields.iter()) {
+                                self.bind_pattern_variables(field_pattern, field_type);
                             }
+                            bound = true;
                         }
-                        if declared_variant.fields.len() != fields.len() {
-                            self.errors.push(TypeError::new(format!(
-                                "enum variant '{}.{}' destructures {} value(s), but pattern provides {}",
-                                enum_name,
-                                variant,
-                                declared_variant.fields.len(),
-                                fields.len()
-                            )));
+                    }
+                }
+                
+                // If not bound yet, try to extract Generic type args and build enum
+                if !bound {
+                    let args = if let TypeInfo::Generic { base, args } = &ty {
+                        if base == enum_name {
+                            Some(args.clone())
+                        } else {
+                            None
                         }
                     } else {
-                        self.errors.push(TypeError::new(format!(
-                            "enum '{}' has no variant '{}'",
-                            enum_name, variant
-                        )));
+                        None
+                    };
+                    
+                    if let Some(args) = args {
+                        if let Some(built_enum) = self.context.build_enum_type(enum_name, args) {
+                            if let TypeInfo::Enum { variants, .. } = &built_enum {
+                                if let Some(variant_info) = variants.get(variant) {
+                                    if fields.len() == variant_info.fields.len() {
+                                        for (field_pattern, field_type) in fields.iter().zip(variant_info.fields.iter()) {
+                                            self.bind_pattern_variables(field_pattern, field_type);
+                                        }
+                                        bound = true;
+                                    }
+                                }
+                            }
+                        }
                     }
-                } else {
+                }
+                
+                // If still not bound, try normalization as last resort
+                if !bound {
+                    let normalized = self.context.normalize_type(ty.clone());
+                    if let TypeInfo::Enum { variants, .. } = &normalized {
+                        if let Some(variant_info) = variants.get(variant) {
+                            if fields.len() == variant_info.fields.len() {
+                                for (field_pattern, field_type) in fields.iter().zip(variant_info.fields.iter()) {
+                                    self.bind_pattern_variables(field_pattern, field_type);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ast::nodes::Pattern::Struct { name, fields } => {
+                // Clone struct fields to avoid borrow conflicts
+                let struct_fields = self.context.get_struct(name).cloned();
+                if let Some(struct_fields) = struct_fields {
+                    for (field_name, nested_pattern) in fields {
+                        if let Some(field_type) = struct_fields.get(field_name) {
+                            if let Some(pattern) = nested_pattern {
+                                self.bind_pattern_variables(pattern, field_type);
+                            } else {
+                                // No nested pattern, bind the field name directly
+                                self.context.insert_variable(field_name.clone(), field_type.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            ast::nodes::Pattern::Array { patterns, rest } => {
+                if let TypeInfo::List(elem_type) = ty {
+                    for pattern in patterns {
+                        self.bind_pattern_variables(pattern, elem_type);
+                    }
+                    if let Some(rest_var) = rest {
+                        // Rest pattern gets the list type
+                        self.context.insert_variable(rest_var.clone(), ty.clone());
+                    }
+                }
+            }
+            ast::nodes::Pattern::Wildcard | ast::nodes::Pattern::Literal(_) => {
+                // No variables to bind
+            }
+        }
+    }
+
+    fn validate_pattern_against_type(&mut self, pattern: &ast::nodes::Pattern, ty: &TypeInfo) {
+        match pattern {
+            ast::nodes::Pattern::Wildcard => {
+                // Wildcard matches any type
+            }
+            ast::nodes::Pattern::Identifier(_) => {
+                // Identifier binds any type
+            }
+            ast::nodes::Pattern::Literal(lit) => {
+                // Check literal type matches expected type
+                let lit_type = match lit {
+                    ast::nodes::Literal::String(_) => TypeInfo::Str,
+                    ast::nodes::Literal::Number(n) => {
+                        if n.value.fract() == 0.0 && n.value >= i32::MIN as f64 && n.value <= i32::MAX as f64 {
+                            TypeInfo::I32
+                        } else {
+                            TypeInfo::F64
+                        }
+                    }
+                    ast::nodes::Literal::Bool(_) => TypeInfo::Bool,
+                    ast::nodes::Literal::None | ast::nodes::Literal::Unit => TypeInfo::Unit,
+                };
+
+                if !lit_type.is_compatible_with(ty) {
                     self.errors.push(TypeError::new(format!(
-                        "unknown enum '{}' in pattern",
-                        enum_name
+                        "literal pattern type {} does not match expected type {}",
+                        lit_type.display_name(),
+                        ty.display_name()
                     )));
                 }
             }
-            ast::nodes::Pattern::Struct { fields, .. } => {
-                for (_, nested) in fields {
-                    if let Some(p) = nested {
-                        self.validate_pattern_against_type(p, ty);
+            ast::nodes::Pattern::EnumVariant {
+                enum_name,
+                variant,
+                fields,
+            } => {
+                // Check that the value type is an enum and matches the pattern
+                match ty {
+                    TypeInfo::Enum { name, args: _, variants } => {
+                        if name != enum_name {
+                            self.errors.push(TypeError::new(format!(
+                                "enum pattern '{}' does not match value type {}",
+                                enum_name, name
+                            )));
+                            return;
+                        }
+
+                        // Find the variant in the enum definition
+                        if let Some(variant_def) = variants.get(variant) {
+                            if variant_def.fields.len() != fields.len() {
+                                self.errors.push(TypeError::new(format!(
+                                    "enum variant '{}.{}' has {} field(s), but pattern destructures {}",
+                                    enum_name, variant, variant_def.fields.len(), fields.len()
+                                )));
+                            } else {
+                                // Check that nested patterns match field types
+                                for (field_pattern, field_type) in fields.iter().zip(variant_def.fields.iter()) {
+                                    self.validate_pattern_against_type(field_pattern, field_type);
+                                }
+                            }
+                        } else {
+                            self.errors.push(TypeError::new(format!(
+                                "enum '{}' has no variant '{}'",
+                                enum_name, variant
+                            )));
+                        }
+                    }
+                    TypeInfo::Generic { base, args } if base == enum_name => {
+                        // Try to build the enum type from generic
+                        if let Some(built_enum) = self.context.build_enum_type(enum_name, args.clone()) {
+                            self.validate_pattern_against_type(pattern, &built_enum);
+                        } else {
+                            self.errors.push(TypeError::new(format!(
+                                "cannot resolve generic enum '{}' with args {:?}",
+                                enum_name, args
+                            )));
+                        }
+                    }
+                    _ => {
+                        self.errors.push(TypeError::new(format!(
+                            "cannot match enum pattern '{}' against non-enum type {}",
+                            enum_name, ty.display_name()
+                        )));
                     }
                 }
             }
-            ast::nodes::Pattern::Array { patterns, .. } => {
-                for p in patterns {
-                    self.validate_pattern_against_type(p, ty);
+            ast::nodes::Pattern::Struct { name, fields } => {
+                // Check that value type is compatible with struct pattern
+                match ty {
+                    TypeInfo::Struct { name: struct_name, fields: struct_fields } => {
+                        if name != struct_name {
+                            self.errors.push(TypeError::new(format!(
+                                "struct pattern '{}' does not match value type {}",
+                                name, struct_name
+                            )));
+                            return;
+                        }
+
+                        // Check each field pattern
+                        for (field_name, field_pattern) in fields {
+                            if let Some(field_type) = struct_fields.get(field_name) {
+                                if let Some(pattern) = field_pattern {
+                                    self.validate_pattern_against_type(pattern, field_type);
+                                }
+                                // If no pattern, just bind the field - no validation needed
+                            } else {
+                                self.errors.push(TypeError::new(format!(
+                                    "struct '{}' has no field '{}'",
+                                    name, field_name
+                                )));
+                            }
+                        }
+                    }
+                    _ => {
+                        self.errors.push(TypeError::new(format!(
+                            "cannot match struct pattern '{}' against non-struct type {}",
+                            name, ty.display_name()
+                        )));
+                    }
                 }
             }
-            ast::nodes::Pattern::Wildcard
-            | ast::nodes::Pattern::Literal(_)
-            | ast::nodes::Pattern::Identifier(_) => {}
+            ast::nodes::Pattern::Array { patterns, rest } => {
+                // Check that value type is a list/array
+                match ty {
+                    TypeInfo::List(elem_type) => {
+                        // Check each pattern element
+                        for pattern in patterns {
+                            self.validate_pattern_against_type(pattern, elem_type);
+                        }
+                        // Rest pattern is allowed and binds remaining elements
+                    }
+                    _ => {
+                        self.errors.push(TypeError::new(format!(
+                            "cannot match array pattern against non-list type {}",
+                            ty.display_name()
+                        )));
+                    }
+                }
+
+                // Check rest pattern usage
+                if let Some(rest_name) = rest {
+                    if patterns.is_empty() && rest_name.is_empty() {
+                        self.errors.push(TypeError::new(
+                            "invalid array pattern: empty rest pattern".to_string()
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -756,8 +962,38 @@ impl TypeChecker {
             }
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
-                    let _expr_type = self.infer_expr_type(expr)?;
-                    // TODO: Check return type matches function signature
+                    let expr_type = self.infer_expr_type(expr)?;
+
+                    // Check return type matches function signature
+                    if let Some(expected_return_type) = &self.current_function_return_type {
+                        if !expr_type.is_compatible_with(expected_return_type) {
+                            self.errors.push(TypeError::new(format!(
+                                "return type mismatch: expected {}, got {}",
+                                expected_return_type.display_name(),
+                                expr_type.display_name()
+                            )));
+                        }
+                    } else {
+                        // We're not inside a function context - this is an error
+                        self.errors.push(TypeError::new(
+                            "return statement outside of function".to_string()
+                        ));
+                    }
+                } else {
+                    // Bare return - check if function expects unit
+                    if let Some(expected_return_type) = &self.current_function_return_type {
+                        if !expected_return_type.is_compatible_with(&TypeInfo::Unit) {
+                            self.errors.push(TypeError::new(format!(
+                                "bare return in function that expects return type {}",
+                                expected_return_type.display_name()
+                            )));
+                        }
+                    } else {
+                        // We're not inside a function context - this is an error
+                        self.errors.push(TypeError::new(
+                            "return statement outside of function".to_string()
+                        ));
+                    }
                 }
             }
             Statement::Function(_) => {
@@ -1235,6 +1471,23 @@ impl TypeChecker {
                     }
                 }
                 Expr::Member { object, field } => {
+                    if let Expr::Identifier(enum_name) = object.as_ref() {
+                        if let Some(definition) = self.context.get_enum(enum_name) {
+                            if let Some(variant) = definition.variants.iter().find(|v| v.name == *field) {
+                                if variant.fields.is_empty() {
+                                    if let Some(enum_type) = self.context.build_enum_type(enum_name, vec![]) {
+                                        return Ok(enum_type);
+                                    }
+                                }
+                            }
+                            return Ok(TypeInfo::Function {
+                                params: vec![],
+                                param_defaults: vec![],
+                                return_type: Box::new(TypeInfo::Unknown),
+                            });
+                        }
+                    }
+                    
                     let object_type = self.infer_expr_type(object)?;
                     match &object_type {
                         TypeInfo::Struct { fields, .. } => {
@@ -1553,7 +1806,9 @@ impl TypeChecker {
                     })
                 }
                 Expr::Match { value, arms } => {
-                    let value_type = self.infer_expr_type(value)?;
+                    let mut value_type = self.infer_expr_type(value)?;
+                    // Normalize generic types to enum types if applicable
+                    value_type = self.context.normalize_type(value_type);
 
                     if arms.is_empty() {
                         self.errors.push(
@@ -1568,10 +1823,27 @@ impl TypeChecker {
                     // Type check each arm
                     let mut arm_types = Vec::new();
                     for arm in arms {
-                        // Check pattern matches value type (simplified - just check it's valid)
-                        // TODO: More sophisticated pattern matching type checking
+                        // Bind pattern variables before checking guard and body
+                        // Ensure type is normalized before binding (in case it wasn't normalized above)
+                        let mut normalized_type = self.context.normalize_type(value_type.clone());
 
-                        self.validate_pattern_against_type(&arm.pattern, &value_type);
+                        // If normalization didn't work and we have an enum variant pattern, try to build the enum type directly
+                        if let TypeInfo::Generic { base, args } = &normalized_type {
+                            if let ast::nodes::Pattern::EnumVariant { enum_name, .. } = &arm.pattern {
+                                if base == enum_name {
+                                    // Try to build the enum type directly using the pattern's enum name
+                                    if let Some(built_enum) = self.context.build_enum_type(enum_name, args.clone()) {
+                                        normalized_type = built_enum;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check pattern matches value type with sophisticated validation
+                        self.validate_pattern_against_type(&arm.pattern, &normalized_type);
+
+                        let old_vars = self.context.variables.clone();
+                        self.bind_pattern_variables(&arm.pattern, &normalized_type);
 
                         // Check guard if present
                         if let Some(guard) = &arm.guard {
@@ -1587,6 +1859,9 @@ impl TypeChecker {
                         // Get arm body type
                         let body_type = self.infer_expr_type(&arm.body)?;
                         arm_types.push(body_type);
+
+                        // Restore original variables (pattern bindings don't leak)
+                        self.context.variables = old_vars;
                     }
 
                     // All arms must return compatible types
@@ -1684,11 +1959,23 @@ impl TypeChecker {
                 }
                 Expr::Await(expr) => {
                     // Await expects an async/awaitable type
-                    // For now, just type check the inner expression
                     let inner_type = self.infer_expr_type(expr)?;
 
-                    // TODO: Check if inner_type is actually awaitable
-                    // For now, return the inner type
+                    // Check if inner_type is actually awaitable
+                    match &inner_type {
+                        // Task handles from spawn operations (generic types)
+                        TypeInfo::Generic { base, args: _ } if base == "Task" || base == "Future" => {
+                            // Explicitly async types are awaitable
+                        }
+                        // Any type for now - in early development, be permissive
+                        // In a full implementation, we'd be more restrictive
+                        _ => {
+                            // For now, allow awaiting on any type since async system is in development
+                            // TODO: Restrict to only proper async types when the async system matures
+                        }
+                    }
+
+                    // For await, we return the inner type (unwrap the async wrapper)
                     Ok(inner_type)
                 }
                 Expr::Spawn(expr) => {

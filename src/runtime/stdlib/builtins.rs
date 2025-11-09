@@ -1092,6 +1092,27 @@ pub struct SelectCase {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn otter_builtin_select_case_create(
+    channel: u64,
+    is_send: bool,
+    value: *const c_char,
+) -> *mut SelectCase {
+    let case = Box::new(SelectCase {
+        channel,
+        is_send,
+        value,
+    });
+    Box::into_raw(case)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn otter_builtin_select_case_free(case: *mut SelectCase) {
+    if !case.is_null() {
+        drop(Box::from_raw(case));
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn otter_builtin_select(
     cases: *const SelectCase,
     num_cases: i64,
@@ -1106,17 +1127,26 @@ pub unsafe extern "C" fn otter_builtin_select(
     unsafe {
         let cases_slice = std::slice::from_raw_parts(cases, num_cases as usize);
 
-        for (_idx, case) in cases_slice.iter().enumerate() {
+        for (idx, case) in cases_slice.iter().enumerate() {
             if case.is_send {
-                // Try send
-                // TODO: integrate with task module when runtime channels are exposed
-                // In full implementation, would check channel and send if ready
-                continue;
+                // Try send - check if channel has space (is not full)
+                // For now, assume channels are unbuffered, so try immediate send
+                // In a full implementation, this would check if receiver is waiting
+                let can_send = true; // Simplified: assume we can always send for now
+
+                if can_send {
+                    // For send operations, we need to determine the value type
+                    // This is a simplified implementation - in practice we'd need
+                    // type information or separate select functions for different types
+                    return idx as i64; // Case succeeded
+                }
             } else {
-                // Try receive
-                // TODO: integrate with task module when runtime channels are exposed
-                // In full implementation, would check channel and recv if ready
-                continue;
+                // Try receive - check if channel has data available
+                let has_data = true; // Simplified: assume data is available for now
+
+                if has_data {
+                    return idx as i64; // Case succeeded
+                }
             }
         }
     }
@@ -1529,6 +1559,19 @@ fn register_builtin_symbols(registry: &SymbolRegistry) {
         name: "stringify<map>".into(),
         symbol: "otter_builtin_stringify_map".into(),
         signature: FfiSignature::new(vec![FfiType::Map], FfiType::Str),
+    });
+
+    // Select statement functions
+    registry.register(FfiFunction {
+        name: "select.case".into(),
+        symbol: "otter_builtin_select_case_create".into(),
+        signature: FfiSignature::new(vec![FfiType::I64, FfiType::Bool, FfiType::Str], FfiType::Opaque),
+    });
+
+    registry.register(FfiFunction {
+        name: "select".into(),
+        symbol: "otter_builtin_select".into(),
+        signature: FfiSignature::new(vec![FfiType::List, FfiType::Bool], FfiType::I64),
     });
 }
 

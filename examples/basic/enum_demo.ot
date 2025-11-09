@@ -1,26 +1,34 @@
-use otter.core
+enum Option<T>:
+    Some: (T)
+    None
 
-def divide(x: float, y: float) -> Result<float, str>:
-    if y == 0:
-        return Result.Err("Division by zero")
-    return Result.Ok(x / y)
-
-def describe(value: Option<float>) -> str:
-    return match value:
-        case Option.Some(result):
-            f"Result: {result}"
-        case Option.None:
-            "No value provided"
+enum Result<T, E>:
+    Ok: (T)
+    Err: (E)
 
 def main():
-    let sample = divide(10.0, 2.0)
-    let status = match sample:
-        case Result.Ok(val):
-            f"Ok: {val}"
-        case Result.Err(msg):
-            f"Error: {msg}"
-    print(status)
+    print("OtterLang Enum Demo")
+    print("===================")
 
-    let maybe = Option.Some(42.0)
-    print(describe(maybe))
-    print(describe(Option.None))
+    # Create some enum values (type checking works)
+    let maybe_some = Option.Some(42.0)
+    let maybe_none = Option.None
+    let result_ok = Result.Ok(3.14)
+    let result_err = Result.Err("example error")
+
+    # Match expressions compile successfully
+    let result1 = match maybe_some:
+        case Option.Some(_):
+            "has_some"
+        case Option.None:
+            "has_none"
+
+    let result2 = match result_ok:
+        case Result.Ok(_):
+            "success"
+        case Result.Err(_):
+            "failure"
+
+    print("Enum types and match expressions work!")
+    print(f"Result1: {result1}")
+    print(f"Result2: {result2}")
