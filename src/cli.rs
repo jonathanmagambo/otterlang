@@ -11,12 +11,12 @@ use tracing::{debug, info, warn};
 use crate::codegen::{
     self, build_executable, BuildArtifact, CodegenOptLevel, CodegenOptions, TargetTriple,
 };
-use crate::language::LanguageFeatureFlags;
 use crate::module::ModuleProcessor;
 use crate::runtime::ffi;
 use crate::typecheck::TypeChecker;
 use crate::version::VERSION;
 use cache::{CacheBuildOptions, CacheEntry, CacheManager, CacheMetadata, CompilationInputs};
+use language::LanguageFeatureFlags;
 use lexer::{tokenize, LexerError};
 use parser::{parse, ParserError};
 use utils::errors::{emit_diagnostics, Diagnostic};
@@ -300,10 +300,9 @@ fn compile_pipeline(
     })?;
 
     // Type check the program
-    let mut type_checker = TypeChecker::with_language_features(
-        settings.language_features().clone(),
-    )
-    .with_registry(crate::runtime::symbol_registry::SymbolRegistry::global());
+    let mut type_checker =
+        TypeChecker::with_language_features(settings.language_features().clone())
+            .with_registry(crate::runtime::symbol_registry::SymbolRegistry::global());
     let type_check_result =
         profiler.record_phase("Type Checking", || type_checker.check_program(&program));
 
