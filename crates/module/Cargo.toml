@@ -1,0 +1,12 @@
+[package]
+name = "module"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ast.path = "../ast"
+lexer.path = "../lexer"
+parser.path = "../parser"
+
+anyhow = "1.0"
+tempfile = "3.10"

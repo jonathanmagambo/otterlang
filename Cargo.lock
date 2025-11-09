@@ -974,6 +974,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "language"
+version = "0.1.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1107,6 +1111,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "module"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ast",
+ "lexer",
+ "parser",
+ "tempfile",
+]
+
+[[package]]
 name = "ntapi"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1203,11 +1218,13 @@ dependencies = [
  "indicatif",
  "inkwell",
  "inventory",
+ "language",
  "lexer",
  "libc",
  "libloading 0.8.9",
  "libm",
  "memmap2",
+ "module",
  "once_cell",
  "parking_lot",
  "parser",

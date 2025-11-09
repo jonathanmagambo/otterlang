@@ -1,10 +1,10 @@
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 
-use crate::language::LanguageFeatureFlags;
 use crate::runtime::symbol_registry::{FfiType, SymbolRegistry};
 use crate::typecheck::types::{TypeContext, TypeError, TypeInfo};
 use ast::nodes::{Block, Expr, Function, Literal, Program, Statement};
+use language::LanguageFeatureFlags;
 
 /// Type checker that validates and infers types in OtterLang programs
 pub struct TypeChecker {
@@ -172,10 +172,14 @@ impl TypeChecker {
                         self.context.pop_generic();
                     }
                 }
-                Statement::TypeAlias { name, target, public, .. } => {
+                Statement::TypeAlias {
+                    name,
+                    target,
+                    public,
+                    ..
+                } => {
                     let ty = TypeInfo::from(target);
-                    self.context
-                        .define_type_alias(name.clone(), ty, *public);
+                    self.context.define_type_alias(name.clone(), ty, *public);
                 }
                 _ => {}
             }

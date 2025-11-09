@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use ast::nodes::Type;
 
-use crate::language::LanguageFeatureFlags;
+use language::LanguageFeatureFlags;
 
 /// Represents a type in the type system
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,9 +102,7 @@ impl TypeInfo {
                     .map(|(k, v)| (k.clone(), v.substitute(substitutions)))
                     .collect(),
             },
-            TypeInfo::Option(inner) => {
-                TypeInfo::Option(Box::new(inner.substitute(substitutions)))
-            }
+            TypeInfo::Option(inner) => TypeInfo::Option(Box::new(inner.substitute(substitutions))),
             TypeInfo::Result { ok, err } => TypeInfo::Result {
                 ok: Box::new(ok.substitute(substitutions)),
                 err: Box::new(err.substitute(substitutions)),
@@ -174,10 +172,9 @@ impl TypeInfo {
             (TypeInfo::Option(inner_a), TypeInfo::Option(inner_b)) => {
                 inner_a.is_compatible_with(inner_b)
             }
-            (
-                TypeInfo::Result { ok: ok1, err: err1 },
-                TypeInfo::Result { ok: ok2, err: err2 },
-            ) => ok1.is_compatible_with(ok2) && err1.is_compatible_with(err2),
+            (TypeInfo::Result { ok: ok1, err: err1 }, TypeInfo::Result { ok: ok2, err: err2 }) => {
+                ok1.is_compatible_with(ok2) && err1.is_compatible_with(err2)
+            }
             (
                 TypeInfo::Alias {
                     underlying: alias, ..

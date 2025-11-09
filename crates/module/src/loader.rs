@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::module::resolver::ModuleResolver;
+use crate::resolver::ModuleResolver;
 use ast::nodes::Program;
 use lexer::tokenize;
 use parser::parse;
