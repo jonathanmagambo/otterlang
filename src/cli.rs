@@ -709,11 +709,24 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
 }
 
 fn handle_repl() -> Result<()> {
-    use crate::repl::ReplEngine;
-    println!("Starting OtterLang REPL...");
-    println!("Type 'exit' or 'quit' to exit, 'help' for help");
-    let mut repl = ReplEngine::new();
-    repl.run()
+    use crate::repl::{ReplEngine, Tui};
+    
+    let engine = ReplEngine::new();
+    match Tui::new(engine) {
+        Ok(mut tui) => {
+            if let Err(e) = tui.run() {
+                eprintln!("TUI error: {}", e);
+                eprintln!("Error chain: {:?}", e);
+                return Err(e).with_context(|| "TUI runtime error");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize TUI: {}", e);
+            eprintln!("Error chain: {:?}", e);
+            Err(e).with_context(|| "Failed to initialize TUI. Make sure you're running in a terminal.")
+        }
+    }
 }
 
 fn print_profile(metadata: &CacheMetadata) {
