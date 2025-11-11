@@ -276,7 +276,7 @@ pub fn build_executable(
         .map_err(|e| anyhow!("failed to create target from triple {}: {e}", triple_str))?;
 
     let optimization: OptimizationLevel = options.opt_level.into();
-    let reloc_mode = if runtime_triple.is_wasm() {
+    let reloc_mode = if runtime_triple.needs_pic() {
         RelocMode::PIC
     } else {
         RelocMode::Default

@@ -5,3 +5,4 @@ def sum_series(n: float) -> float:
 
 def main():
     let result = sum_series(100.0)
+nix d

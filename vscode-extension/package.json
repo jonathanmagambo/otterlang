@@ -51,27 +51,27 @@
     "commands": [
       {
         "command": "otterlang.restartServer",
-        "title": "OtterLang: Restart Language Server",
+        "title": "Restart Language Server",
         "category": "OtterLang"
       },
       {
         "command": "otterlang.startServer",
-        "title": "OtterLang: Start Language Server",
+        "title": "Start Language Server",
         "category": "OtterLang"
       },
       {
         "command": "otterlang.stopServer",
-        "title": "OtterLang: Stop Language Server",
+        "title": "Stop Language Server",
         "category": "OtterLang"
       },
       {
         "command": "otterlang.toggleLogs",
-        "title": "OtterLang: Toggle LSP Logs",
+        "title": "Toggle LSP Logs",
         "category": "OtterLang"
       },
       {
         "command": "otterlang.showOutput",
-        "title": "OtterLang: Show Output",
+        "title": "Show Output",
         "category": "OtterLang"
       }
     ],
