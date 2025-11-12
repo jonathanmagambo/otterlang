@@ -1137,11 +1137,12 @@ impl TypeChecker {
         let ty = (|| -> Result<TypeInfo> {
             match expr {
                 Expr::Literal(lit) => Ok(match lit {
-                    Literal::Number(_num) => {
-                        // Always infer numeric literals as F64 for simplicity and to avoid
-                        // type inference issues with float contexts
-                        // This matches Python's behavior where all numbers are floats by default
-                        TypeInfo::F64
+                    Literal::Number(num) => {
+                        if num.is_float_literal {
+                            TypeInfo::F64
+                        } else {
+                            TypeInfo::I64
+                        }
                     }
                     Literal::String(_) => TypeInfo::Str,
                     Literal::Bool(_) => TypeInfo::Bool,
@@ -1152,11 +1153,18 @@ impl TypeChecker {
                     if let Some(var_type) = self.context.get_variable(name) {
                         Ok(var_type.clone())
                     } else if let Some(registry) = self.registry {
-                        if registry.all().iter().any(|f| f.name.starts_with(&format!("{}.", name))) {
+                        if registry
+                            .all()
+                            .iter()
+                            .any(|f| f.name.starts_with(&format!("{}.", name)))
+                        {
                             Ok(TypeInfo::Module(name.clone()))
                         } else {
                             Err(TypeError::new(format!("undefined variable: {}", name))
-                                .with_hint(format!("did you mean to declare it with `let {}`?", name))
+                                .with_hint(format!(
+                                    "did you mean to declare it with `let {}`?",
+                                    name
+                                ))
                                 .with_help("Variables must be declared before use".to_string())
                                 .with_optional_span(*span)
                                 .into())
@@ -1325,7 +1333,7 @@ impl TypeChecker {
                         }
                         Expr::Member { object, field } => {
                             let full_name = self.build_member_path(object, field);
-                            
+
                             // First check registry for exact FFI signatures
                             if let Some(registry) = self.registry {
                                 if let Some(symbol) = registry.resolve(&full_name) {
@@ -1336,7 +1344,10 @@ impl TypeChecker {
                                         .map(|ft| ffi_type_to_typeinfo(ft))
                                         .collect();
                                     let return_type = if full_name == "sys.getenv" {
-                                        if let Some(option_enum) = self.context.build_enum_type("Option", vec![TypeInfo::Str]) {
+                                        if let Some(option_enum) = self
+                                            .context
+                                            .build_enum_type("Option", vec![TypeInfo::Str])
+                                        {
                                             option_enum
                                         } else {
                                             ffi_type_to_typeinfo(&symbol.signature.result)
@@ -1346,20 +1357,21 @@ impl TypeChecker {
                                     };
                                     return Ok(TypeInfo::Function {
                                         params,
-                                        param_defaults: vec![
-                                            false;
-                                            symbol.signature.params.len()
-                                        ],
+                                        param_defaults: vec![false; symbol.signature.params.len()],
                                         return_type: Box::new(return_type),
                                     });
                                 }
-                                
+
                                 // Check if this is a nested module path (e.g., rand.rngs)
-                                if registry.all().iter().any(|f| f.name.starts_with(&format!("{}.", full_name))) {
+                                if registry
+                                    .all()
+                                    .iter()
+                                    .any(|f| f.name.starts_with(&format!("{}.", full_name)))
+                                {
                                     return Ok(TypeInfo::Module(full_name));
                                 }
                             }
-                            
+
                             // Fall back to context functions
                             self.context
                                 .get_function(&full_name)
@@ -1376,12 +1388,13 @@ impl TypeChecker {
                                             };
                                         }
                                     }
-                                    
+
                                     // Method call: obj.method() - infer object type and look up method
                                     if let Ok(obj_type) = self.infer_expr_type(object) {
                                         if let TypeInfo::Struct { name, .. } = obj_type {
                                             let method_name = format!("{}.{}", name, field);
-                                            return self.context
+                                            return self
+                                                .context
                                                 .get_function(&method_name)
                                                 .cloned()
                                                 .unwrap_or_else(|| {
@@ -1393,7 +1406,7 @@ impl TypeChecker {
                                                 });
                                         }
                                     }
-                                    
+
                                     // Return a generic function type for unknown FFI functions
                                     TypeInfo::Function {
                                         params: vec![],
@@ -1478,11 +1491,15 @@ impl TypeChecker {
                                 }
                             }
 
-                            let result_type = if let Expr::Member { object, field } = func.as_ref() {
+                            let result_type = if let Expr::Member { object, field } = func.as_ref()
+                            {
                                 if let Expr::Identifier { name: module, .. } = object.as_ref() {
                                     let full_name = format!("{}.{}", module, field);
                                     if full_name == "sys.getenv" {
-                                        if let Some(option_enum) = self.context.build_enum_type("Option", vec![TypeInfo::Str]) {
+                                        if let Some(option_enum) = self
+                                            .context
+                                            .build_enum_type("Option", vec![TypeInfo::Str])
+                                        {
                                             option_enum
                                         } else {
                                             *return_type
@@ -1586,17 +1603,28 @@ impl TypeChecker {
                     }
 
                     let full_name = self.build_member_path(object, field);
-                    
+
                     // Check if this is a module path in the registry
                     if let Some(registry) = self.registry {
-                        if registry.all().iter().any(|f| f.name.starts_with(&format!("{}.", full_name))) {
+                        if registry
+                            .all()
+                            .iter()
+                            .any(|f| f.name.starts_with(&format!("{}.", full_name)))
+                        {
                             return Ok(TypeInfo::Module(full_name));
                         }
                         if let Some(symbol) = registry.resolve(&full_name) {
                             return Ok(TypeInfo::Function {
-                                params: symbol.signature.params.iter().map(|ft| ffi_type_to_typeinfo(ft)).collect(),
+                                params: symbol
+                                    .signature
+                                    .params
+                                    .iter()
+                                    .map(|ft| ffi_type_to_typeinfo(ft))
+                                    .collect(),
                                 param_defaults: vec![false; symbol.signature.params.len()],
-                                return_type: Box::new(ffi_type_to_typeinfo(&symbol.signature.result)),
+                                return_type: Box::new(ffi_type_to_typeinfo(
+                                    &symbol.signature.result,
+                                )),
                             });
                         }
                     }
@@ -1606,14 +1634,25 @@ impl TypeChecker {
                         TypeInfo::Module(module_name) => {
                             let full_name = format!("{}.{}", module_name, field);
                             if let Some(registry) = self.registry {
-                                if registry.all().iter().any(|f| f.name.starts_with(&format!("{}.", full_name))) {
+                                if registry
+                                    .all()
+                                    .iter()
+                                    .any(|f| f.name.starts_with(&format!("{}.", full_name)))
+                                {
                                     return Ok(TypeInfo::Module(full_name));
                                 }
                                 if let Some(symbol) = registry.resolve(&full_name) {
                                     return Ok(TypeInfo::Function {
-                                        params: symbol.signature.params.iter().map(|ft| ffi_type_to_typeinfo(ft)).collect(),
+                                        params: symbol
+                                            .signature
+                                            .params
+                                            .iter()
+                                            .map(|ft| ffi_type_to_typeinfo(ft))
+                                            .collect(),
                                         param_defaults: vec![false; symbol.signature.params.len()],
-                                        return_type: Box::new(ffi_type_to_typeinfo(&symbol.signature.result)),
+                                        return_type: Box::new(ffi_type_to_typeinfo(
+                                            &symbol.signature.result,
+                                        )),
                                     });
                                 }
                             }
@@ -2143,7 +2182,10 @@ impl TypeChecker {
     fn build_member_path(&self, object: &Expr, field: &str) -> String {
         match object {
             Expr::Identifier { name, .. } => format!("{}.{}", name, field),
-            Expr::Member { object: inner_obj, field: inner_field } => {
+            Expr::Member {
+                object: inner_obj,
+                field: inner_field,
+            } => {
                 let prefix = self.build_member_path(inner_obj, inner_field);
                 format!("{}.{}", prefix, field)
             }
@@ -2187,7 +2229,7 @@ mod tests {
 
         let expr = Expr::Literal(Literal::Number(NumberLiteral::new(42.0, false)));
         let ty = checker.infer_expr_type(&expr).unwrap();
-        assert_eq!(ty, TypeInfo::F64);
+        assert_eq!(ty, TypeInfo::I64);
 
         let expr = Expr::Literal(Literal::Number(NumberLiteral::new(f64::consts::PI, true)));
         let ty = checker.infer_expr_type(&expr).unwrap();

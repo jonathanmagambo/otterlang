@@ -284,7 +284,7 @@ impl TypeInfo {
 
             // Module types are compatible with themselves
             (TypeInfo::Module(n1), TypeInfo::Module(n2)) => n1 == n2,
-            
+
             // Error types are compatible with strings (for convenience) and themselves
             (TypeInfo::Error, TypeInfo::Error) => true,
             (TypeInfo::Str, TypeInfo::Error) => true, // Allow raising strings as errors
@@ -371,7 +371,7 @@ impl From<&Type> for TypeInfo {
                 "unit" | "None" | "none" => TypeInfo::Unit,
                 "bool" => TypeInfo::Bool,
                 "i32" => TypeInfo::I32,
-                "i64" => TypeInfo::I64,
+                "i64" | "int" => TypeInfo::I64,
                 "f64" | "float" => TypeInfo::F64,
                 "str" => TypeInfo::Str,
                 "list" | "List" => TypeInfo::List(Box::new(TypeInfo::Unknown)),
