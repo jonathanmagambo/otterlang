@@ -40,20 +40,17 @@ impl EventHandler {
                     .unwrap_or_else(|| Duration::from_secs(0));
 
                 match event::poll(timeout) {
-                    Ok(true) => match event::read() {
-                        Ok(evt) => match evt {
-                            Event::Key(key) => {
-                                if key.kind == KeyEventKind::Press {
-                                    let _ = event_tx.send(AppEvent::Key(key));
-                                }
+                    Ok(true) => if let Ok(evt) = event::read() { match evt {
+                        Event::Key(key) => {
+                            if key.kind == KeyEventKind::Press {
+                                let _ = event_tx.send(AppEvent::Key(key));
                             }
-                            Event::Resize(w, h) => {
-                                let _ = event_tx.send(AppEvent::Resize(w, h));
-                            }
-                            _ => {}
-                        },
-                        Err(_) => {}
-                    },
+                        }
+                        Event::Resize(w, h) => {
+                            let _ = event_tx.send(AppEvent::Resize(w, h));
+                        }
+                        _ => {}
+                    } },
                     Ok(false) => {}
                     Err(_) => {}
                 }

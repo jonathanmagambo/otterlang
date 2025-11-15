@@ -44,7 +44,7 @@ impl TaskRuntime {
 static RUNTIME: once_cell::sync::Lazy<TaskRuntime> = once_cell::sync::Lazy::new(TaskRuntime::new);
 
 pub fn runtime() -> &'static TaskRuntime {
-    &*RUNTIME
+    &RUNTIME
 }
 
 /// Initializes the task runtime and returns a scheduler handle.

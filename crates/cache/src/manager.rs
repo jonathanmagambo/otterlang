@@ -16,12 +16,18 @@ pub struct CacheEntry {
     pub binary_path: PathBuf,
 }
 
-impl CacheManager {
-    pub fn new() -> Self {
+impl Default for CacheManager {
+    fn default() -> Self {
         Self {
             _cache_dir: PathBuf::from("./cache"),
             entries: HashMap::new(),
         }
+    }
+}
+
+impl CacheManager {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn get(&self, key: &str) -> Option<&CacheEntry> {

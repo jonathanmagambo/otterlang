@@ -162,12 +162,11 @@ fn handle_run(cli: &OtterCli, path: &Path) -> Result<()> {
         CompilationResult::Compiled { artifact, metadata } => {
             println!("building {}", artifact.binary.display());
             execute_binary(&artifact.binary, &settings)?;
-            if settings.dump_ir {
-                if let Some(ir) = &artifact.ir {
+            if settings.dump_ir
+                && let Some(ir) = &artifact.ir {
                     println!("\n== LLVM IR ==");
                     println!("{ir}");
                 }
-            }
             if settings.profile {
                 print_profile(metadata);
             }
@@ -209,12 +208,11 @@ fn handle_build(cli: &OtterCli, path: &Path, output: Option<PathBuf>) -> Result<
 
     match &stage.result {
         CompilationResult::Compiled { artifact, metadata } => {
-            if settings.dump_ir {
-                if let Some(ir) = &artifact.ir {
+            if settings.dump_ir
+                && let Some(ir) = &artifact.ir {
                     println!("\n== LLVM IR ==");
                     println!("{ir}");
                 }
-            }
             if settings.profile {
                 print_profile(metadata);
             }
@@ -255,8 +253,8 @@ pub fn compile_pipeline(
         cache_manager.fingerprint(&inputs, &cache_options, VERSION)
     });
 
-    if settings.allow_cache() {
-        if let Some(entry) =
+    if settings.allow_cache()
+        && let Some(entry) =
             profiler.record_phase("Cache lookup", || cache_manager.lookup(&initial_cache_key))
         {
             debug!(cache_hit = %entry.binary_path.display());
@@ -266,7 +264,6 @@ pub fn compile_pipeline(
                 result: CompilationResult::CacheHit(entry),
             });
         }
-    }
 
     let tokens = match profiler.record_phase("Lexing", || tokenize(source)) {
         Ok(tokens) => tokens,
@@ -348,8 +345,8 @@ pub fn compile_pipeline(
     });
 
     // Check cache again with module dependencies included
-    if settings.allow_cache() {
-        if let Some(entry) = profiler.record_phase("Cache lookup (with modules)", || {
+    if settings.allow_cache()
+        && let Some(entry) = profiler.record_phase("Cache lookup (with modules)", || {
             cache_manager.lookup(&cache_key)
         }) {
             debug!(cache_hit = %entry.binary_path.display());
@@ -359,7 +356,6 @@ pub fn compile_pipeline(
                 result: CompilationResult::CacheHit(entry),
             });
         }
-    }
 
     let codegen_options = settings.codegen_options();
     let binary_path = cache_manager
@@ -590,8 +586,8 @@ fn find_stdlib_dir() -> Result<PathBuf> {
     }
 
     // Try relative to executable (for development)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent() {
             let stdlib = exe_dir
                 .parent()
                 .unwrap_or(exe_dir)
@@ -601,7 +597,6 @@ fn find_stdlib_dir() -> Result<PathBuf> {
                 return Ok(stdlib);
             }
         }
-    }
 
     // Try relative to current directory (for development)
     let stdlib = PathBuf::from("stdlib").join("otter");
@@ -685,20 +680,16 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
     let mut files = Vec::new();
     if paths.is_empty() || (paths.len() == 1 && paths[0].to_str() == Some(".")) {
         // Default: format all .ot files in current directory recursively
-        for entry in glob("**/*.ot")? {
-            if let Ok(path) = entry {
-                files.push(path);
-            }
+        for path in (glob("**/*.ot")?).flatten() {
+            files.push(path);
         }
     } else {
         for path in paths {
             if path.is_dir() {
-                for entry in glob(&format!("{}/**/*.ot", path.display()))? {
-                    if let Ok(p) = entry {
-                        files.push(p);
-                    }
+                for p in (glob(&format!("{}/**/*.ot", path.display()))?).flatten() {
+                    files.push(p);
                 }
-            } else if path.extension().map_or(false, |ext| ext == "ot") {
+            } else if path.extension().is_some_and(|ext| ext == "ot") {
                 files.push(path.clone());
             }
         }
@@ -872,15 +863,14 @@ fn collect_rust_imports_for_typecheck(program: &ast::nodes::Program) -> HashMap<
         } = statement
         {
             for import in use_imports {
-                if let Some((namespace, crate_name)) = import.module.split_once(':') {
-                    if namespace == "rust" {
+                if let Some((namespace, crate_name)) = import.module.split_once(':')
+                    && namespace == "rust" {
                         let aliases = imports.entry(crate_name.to_string()).or_default();
                         aliases.insert(crate_name.to_string());
                         if let Some(alias_name) = &import.alias {
                             aliases.insert(alias_name.clone());
                         }
                     }
-                }
             }
         }
     }

@@ -70,11 +70,10 @@ fn extract_candidates(message: &str) -> Vec<&str> {
             .split_whitespace()
             .next()
             .map(|token| token.trim_matches(|c: char| !c.is_alphanumeric() && c != '_'));
-        if let Some(candidate) = candidate {
-            if !candidate.is_empty() {
+        if let Some(candidate) = candidate
+            && !candidate.is_empty() {
                 candidates.push(candidate);
             }
-        }
     }
 
     candidates

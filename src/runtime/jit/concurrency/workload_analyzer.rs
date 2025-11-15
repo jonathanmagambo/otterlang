@@ -22,6 +22,12 @@ struct TaskProfile {
     is_io_bound: bool,
 }
 
+impl Default for WorkloadAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WorkloadAnalyzer {
     pub fn new() -> Self {
         Self {

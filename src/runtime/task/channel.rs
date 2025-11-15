@@ -18,6 +18,12 @@ struct ChannelInner<T> {
     condvar: parking_lot::Condvar,
 }
 
+impl<T> Default for TaskChannel<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> TaskChannel<T> {
     pub fn new() -> Self {
         Self::with_metrics(None)

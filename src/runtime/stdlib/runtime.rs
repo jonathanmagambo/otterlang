@@ -192,13 +192,11 @@ pub extern "C" fn otter_runtime_stats() -> *mut c_char {
     let memory_bytes = stats.heap_bytes;
 
     #[cfg_attr(not(feature = "task-runtime"), allow(unused_mut))]
-    let mut fields = vec![
-        format!("\"gos\":{}", active_gos),
+    let mut fields = [format!("\"gos\":{}", active_gos),
         format!("\"cpu_count\":{}", cpu_count),
         format!("\"memory_bytes\":{}", memory_bytes),
         format!("\"total_memory\":{}", system.total_memory() * 1024),
-        format!("\"available_memory\":{}", system.available_memory() * 1024),
-    ];
+        format!("\"available_memory\":{}", system.available_memory() * 1024)];
 
     #[cfg(feature = "task-runtime")]
     if let Some(task_field) = task_metrics_field() {

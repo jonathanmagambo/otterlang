@@ -236,9 +236,9 @@ impl TypeChecker {
             if let Some(default_expr) = &param.default {
                 seen_default = true;
                 param_defaults.push(true);
-                if let Ok(default_type) = self.infer_expr_type(default_expr) {
-                    if let Some(expected) = &explicit_type {
-                        if !default_type.is_compatible_with(expected) {
+                if let Ok(default_type) = self.infer_expr_type(default_expr)
+                    && let Some(expected) = &explicit_type
+                        && !default_type.is_compatible_with(expected) {
                             self.errors.push(
                                 TypeError::new(format!(
                                     "default value for parameter `{}` has type {}, expected {}",
@@ -252,8 +252,6 @@ impl TypeChecker {
                                 ),
                             );
                         }
-                    }
-                }
             } else {
                 if seen_default {
                     self.errors.push(
@@ -377,7 +375,7 @@ impl TypeChecker {
         // Type check function body with return type tracking
         let old_context = std::mem::replace(&mut self.context, fn_context);
         let old_return_type =
-            std::mem::replace(&mut self.current_function_return_type, Some(return_type));
+            self.current_function_return_type.replace(return_type);
         let result = self.check_block(&function.body);
         self.context = old_context;
         self.current_function_return_type = old_return_type;
@@ -426,19 +424,17 @@ impl TypeChecker {
             ast::nodes::Type::Simple(name) => {
                 // Check if this looks like a generic parameter (single uppercase letter or common generic names)
                 // In OtterLang, generic parameters are typically single uppercase letters (T, U, etc.)
-                if name.len() == 1 && name.chars().next().unwrap().is_uppercase() {
-                    if !params.contains(name) {
+                if name.len() == 1 && name.chars().next().unwrap().is_uppercase()
+                    && !params.contains(name) {
                         params.push(name.clone());
                     }
-                }
             }
             ast::nodes::Type::Generic { base, args } => {
                 // Check if base is a generic parameter
-                if base.len() == 1 && base.chars().next().unwrap().is_uppercase() {
-                    if !params.contains(base) {
+                if base.len() == 1 && base.chars().next().unwrap().is_uppercase()
+                    && !params.contains(base) {
                         params.push(base.clone());
                     }
-                }
                 // Recursively extract from type arguments
                 for arg in args {
                     self.extract_generic_params(arg, params);
@@ -452,12 +448,11 @@ impl TypeChecker {
         func: &Expr,
         args: &[Expr],
     ) -> Result<Option<TypeInfo>> {
-        if let Expr::Member { object, field } = func {
-            if let Expr::Identifier {
+        if let Expr::Member { object, field } = func
+            && let Expr::Identifier {
                 name: enum_name, ..
             } = object.as_ref()
-            {
-                if let Some(definition) = self.context.get_enum(enum_name).cloned() {
+                && let Some(definition) = self.context.get_enum(enum_name).cloned() {
                     let variant = match definition
                         .variants
                         .iter()
@@ -527,8 +522,6 @@ impl TypeChecker {
 
                     return Ok(Some(TypeInfo::Error));
                 }
-            }
-        }
         Ok(None)
     }
 
@@ -565,14 +558,13 @@ impl TypeChecker {
                         .entry(base.clone())
                         .or_insert_with(|| actual.clone());
                 } else if base.eq_ignore_ascii_case("List") {
-                    if let TypeInfo::List(inner) = actual {
-                        if let Some(sub_ty) = args.get(0) {
+                    if let TypeInfo::List(inner) = actual
+                        && let Some(sub_ty) = args.first() {
                             self.infer_enum_generics_from_type(sub_ty, inner, definition, inferred);
                         }
-                    }
                 } else if base.eq_ignore_ascii_case("Dict") {
                     if let TypeInfo::Dict { key, value } = actual {
-                        if let Some(key_ty) = args.get(0) {
+                        if let Some(key_ty) = args.first() {
                             self.infer_enum_generics_from_type(key_ty, key, definition, inferred);
                         }
                         if let Some(val_ty) = args.get(1) {
@@ -633,9 +625,9 @@ impl TypeChecker {
                 let mut bound = false;
 
                 // First, check if the type is already an Enum
-                if let TypeInfo::Enum { variants, .. } = &ty {
-                    if let Some(variant_info) = variants.get(variant) {
-                        if fields.len() == variant_info.fields.len() {
+                if let TypeInfo::Enum { variants, .. } = &ty
+                    && let Some(variant_info) = variants.get(variant)
+                        && fields.len() == variant_info.fields.len() {
                             for (field_pattern, field_type) in
                                 fields.iter().zip(variant_info.fields.iter())
                             {
@@ -643,8 +635,6 @@ impl TypeChecker {
                             }
                             bound = true;
                         }
-                    }
-                }
 
                 // If not bound yet, try to extract Generic type args and build enum
                 if !bound {
@@ -658,11 +648,11 @@ impl TypeChecker {
                         None
                     };
 
-                    if let Some(args) = args {
-                        if let Some(built_enum) = self.context.build_enum_type(enum_name, args) {
-                            if let TypeInfo::Enum { variants, .. } = &built_enum {
-                                if let Some(variant_info) = variants.get(variant) {
-                                    if fields.len() == variant_info.fields.len() {
+                    if let Some(args) = args
+                        && let Some(built_enum) = self.context.build_enum_type(enum_name, args)
+                            && let TypeInfo::Enum { variants, .. } = &built_enum
+                                && let Some(variant_info) = variants.get(variant)
+                                    && fields.len() == variant_info.fields.len() {
                                         for (field_pattern, field_type) in
                                             fields.iter().zip(variant_info.fields.iter())
                                         {
@@ -670,26 +660,20 @@ impl TypeChecker {
                                         }
                                         bound = true;
                                     }
-                                }
-                            }
-                        }
-                    }
                 }
 
                 // If still not bound, try normalization as last resort
                 if !bound {
                     let normalized = self.context.normalize_type(ty.clone());
-                    if let TypeInfo::Enum { variants, .. } = &normalized {
-                        if let Some(variant_info) = variants.get(variant) {
-                            if fields.len() == variant_info.fields.len() {
+                    if let TypeInfo::Enum { variants, .. } = &normalized
+                        && let Some(variant_info) = variants.get(variant)
+                            && fields.len() == variant_info.fields.len() {
                                 for (field_pattern, field_type) in
                                     fields.iter().zip(variant_info.fields.iter())
                                 {
                                     self.bind_pattern_variables(field_pattern, field_type);
                                 }
                             }
-                        }
-                    }
                 }
             }
             ast::nodes::Pattern::Struct { name, fields } => {
@@ -882,13 +866,12 @@ impl TypeChecker {
                 }
 
                 // Check rest pattern usage
-                if let Some(rest_name) = rest {
-                    if patterns.is_empty() && rest_name.is_empty() {
+                if let Some(rest_name) = rest
+                    && patterns.is_empty() && rest_name.is_empty() {
                         self.errors.push(TypeError::new(
                             "invalid array pattern: empty rest pattern".to_string(),
                         ));
                     }
-                }
             }
         }
     }
@@ -1341,7 +1324,7 @@ impl TypeChecker {
                                         .signature
                                         .params
                                         .iter()
-                                        .map(|ft| ffi_type_to_typeinfo(ft))
+                                        .map(ffi_type_to_typeinfo)
                                         .collect();
                                     let return_type = if full_name == "sys.getenv" {
                                         if let Some(option_enum) = self
@@ -1378,8 +1361,8 @@ impl TypeChecker {
                                 .cloned()
                                 .unwrap_or_else(|| {
                                     // Check if object is a module type
-                                    if let Ok(obj_type) = self.infer_expr_type(object) {
-                                        if let TypeInfo::Module(_) = obj_type {
+                                    if let Ok(obj_type) = self.infer_expr_type(object)
+                                        && let TypeInfo::Module(_) = obj_type {
                                             // This is a module member access, return a generic function type
                                             return TypeInfo::Function {
                                                 params: vec![],
@@ -1387,11 +1370,10 @@ impl TypeChecker {
                                                 return_type: Box::new(TypeInfo::Unknown),
                                             };
                                         }
-                                    }
 
                                     // Method call: obj.method() - infer object type and look up method
-                                    if let Ok(obj_type) = self.infer_expr_type(object) {
-                                        if let TypeInfo::Struct { name, .. } = obj_type {
+                                    if let Ok(obj_type) = self.infer_expr_type(object)
+                                        && let TypeInfo::Struct { name, .. } = obj_type {
                                             let method_name = format!("{}.{}", name, field);
                                             return self
                                                 .context
@@ -1405,7 +1387,6 @@ impl TypeChecker {
                                                     TypeInfo::Error
                                                 });
                                         }
-                                    }
 
                                     // Return a generic function type for unknown FFI functions
                                     TypeInfo::Function {
@@ -1581,26 +1562,21 @@ impl TypeChecker {
                     if let Expr::Identifier {
                         name: enum_name, ..
                     } = object.as_ref()
-                    {
-                        if let Some(definition) = self.context.get_enum(enum_name) {
+                        && let Some(definition) = self.context.get_enum(enum_name) {
                             if let Some(variant) =
                                 definition.variants.iter().find(|v| v.name == *field)
-                            {
-                                if variant.fields.is_empty() {
-                                    if let Some(enum_type) =
+                                && variant.fields.is_empty()
+                                    && let Some(enum_type) =
                                         self.context.build_enum_type(enum_name, vec![])
                                     {
                                         return Ok(enum_type);
                                     }
-                                }
-                            }
                             return Ok(TypeInfo::Function {
                                 params: vec![],
                                 param_defaults: vec![],
                                 return_type: Box::new(TypeInfo::Unknown),
                             });
                         }
-                    }
 
                     let full_name = self.build_member_path(object, field);
 
@@ -1619,7 +1595,7 @@ impl TypeChecker {
                                     .signature
                                     .params
                                     .iter()
-                                    .map(|ft| ffi_type_to_typeinfo(ft))
+                                    .map(ffi_type_to_typeinfo)
                                     .collect(),
                                 param_defaults: vec![false; symbol.signature.params.len()],
                                 return_type: Box::new(ffi_type_to_typeinfo(
@@ -1647,7 +1623,7 @@ impl TypeChecker {
                                             .signature
                                             .params
                                             .iter()
-                                            .map(|ft| ffi_type_to_typeinfo(ft))
+                                            .map(ffi_type_to_typeinfo)
                                             .collect(),
                                         param_defaults: vec![false; symbol.signature.params.len()],
                                         return_type: Box::new(ffi_type_to_typeinfo(
@@ -1664,9 +1640,7 @@ impl TypeChecker {
                             } else {
                                 self.errors.push(
                                     TypeError::new(format!("struct has no field '{}'", field))
-                                        .with_hint(format!(
-                                            "Check the struct definition for available fields"
-                                        )),
+                                        .with_hint("Check the struct definition for available fields".to_string()),
                                 );
                                 Ok(TypeInfo::Error)
                             }
@@ -1695,9 +1669,7 @@ impl TypeChecker {
                                     field,
                                     object_type.display_name()
                                 ))
-                                .with_hint(format!(
-                                    "Only struct types and Error support member access"
-                                )),
+                                .with_hint("Only struct types and Error support member access".to_string()),
                             );
                             Ok(TypeInfo::Error)
                         }
@@ -1996,10 +1968,9 @@ impl TypeChecker {
                         let mut normalized_type = self.context.normalize_type(value_type.clone());
 
                         // If normalization didn't work and we have an enum variant pattern, try to build the enum type directly
-                        if let TypeInfo::Generic { base, args } = &normalized_type {
-                            if let ast::nodes::Pattern::EnumVariant { enum_name, .. } = &arm.pattern
-                            {
-                                if base == enum_name {
+                        if let TypeInfo::Generic { base, args } = &normalized_type
+                            && let ast::nodes::Pattern::EnumVariant { enum_name, .. } = &arm.pattern
+                                && base == enum_name {
                                     // Try to build the enum type directly using the pattern's enum name
                                     if let Some(built_enum) =
                                         self.context.build_enum_type(enum_name, args.clone())
@@ -2007,8 +1978,6 @@ impl TypeChecker {
                                         normalized_type = built_enum;
                                     }
                                 }
-                            }
-                        }
 
                         // Check pattern matches value type with sophisticated validation
                         self.validate_pattern_against_type(&arm.pattern, &normalized_type);

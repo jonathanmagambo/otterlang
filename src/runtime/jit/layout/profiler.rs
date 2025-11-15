@@ -59,7 +59,7 @@ impl MemoryProfiler {
         let count = self.total_access_count.fetch_add(1, Ordering::SeqCst);
 
         // Sample periodically to avoid excessive memory usage
-        if count % 10 == 0 {
+        if count.is_multiple_of(10) {
             let mut accesses = self.accesses.write();
             if accesses.len() >= self.max_samples {
                 // Keep only recent samples (simple FIFO)
@@ -82,7 +82,7 @@ impl MemoryProfiler {
                 self.struct_accesses
                     .write()
                     .entry(sid)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(pattern.clone());
             }
 
@@ -91,7 +91,7 @@ impl MemoryProfiler {
                 self.field_accesses
                     .write()
                     .entry(fid)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(pattern);
             }
         }
@@ -168,11 +168,7 @@ impl MemoryProfiler {
         for i in 1..patterns.len() {
             let addr1 = patterns[i - 1].address;
             let addr2 = patterns[i].address;
-            let distance = if addr2 > addr1 {
-                addr2 - addr1
-            } else {
-                addr1 - addr2
-            };
+            let distance = addr2.abs_diff(addr1);
             distances.push(distance);
         }
 

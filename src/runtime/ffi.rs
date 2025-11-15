@@ -54,7 +54,7 @@ impl Runtime {
     }
 
     pub fn symbols(&self) -> &SymbolRegistry {
-        &self.registry
+        self.registry
     }
 
     pub fn load_crate(&mut self, crate_name: &str) -> Result<()> {

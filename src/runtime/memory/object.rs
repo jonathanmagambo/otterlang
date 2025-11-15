@@ -50,11 +50,7 @@ impl ObjectHeader {
 
     pub fn decrement_ref(&self) -> usize {
         let prev = self.ref_count.fetch_sub(1, Ordering::SeqCst);
-        if prev <= 1 {
-            0
-        } else {
-            prev - 1
-        }
+        prev.saturating_sub(1)
     }
 
     pub fn ref_count(&self) -> usize {
@@ -67,11 +63,7 @@ impl ObjectHeader {
 
     pub fn decrement_weak(&self) -> usize {
         let prev = self.weak_count.fetch_sub(1, Ordering::SeqCst);
-        if prev <= 1 {
-            0
-        } else {
-            prev - 1
-        }
+        prev.saturating_sub(1)
     }
 
     pub fn weak_count(&self) -> usize {

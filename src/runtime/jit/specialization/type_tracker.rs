@@ -6,6 +6,12 @@ pub struct TypeTracker {
     type_cache: Vec<RuntimeType>,
 }
 
+impl Default for TypeTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeTracker {
     pub fn new() -> Self {
         Self {

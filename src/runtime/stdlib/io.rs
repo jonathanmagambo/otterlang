@@ -63,7 +63,7 @@ pub unsafe extern "C" fn otter_std_io_println(message: *const c_char) {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn otter_std_io_eprintln(message: *const c_char) {
+pub unsafe extern "C" fn otter_std_io_eprintln(message: *const c_char) { unsafe {
     if message.is_null() {
         eprintln!();
         return;
@@ -78,7 +78,7 @@ pub unsafe extern "C" fn otter_std_io_eprintln(message: *const c_char) {
     };
 
     eprintln!("{str_ref}");
-}
+}}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn otter_std_io_read_line() -> *mut c_char {
@@ -168,10 +168,8 @@ pub unsafe extern "C" fn otter_std_io_lines(path: *const c_char) -> u64 {
             let reader = BufReader::new(file);
             let mut lines_list = Vec::new();
 
-            for line in reader.lines() {
-                if let Ok(line_str) = line {
-                    lines_list.push(line_str);
-                }
+            for line_str in reader.lines().flatten() {
+                lines_list.push(line_str);
             }
 
             // Create a list handle using builtins module
@@ -370,8 +368,8 @@ pub unsafe extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
             let list_handle = unsafe { otter_builtin_list_new() };
 
             for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Some(file_name) = entry.file_name().to_str() {
+                if let Ok(entry) = entry
+                    && let Some(file_name) = entry.file_name().to_str() {
                         let cstr = CString::new(file_name).unwrap();
                         let ptr = cstr.into_raw();
                         unsafe {
@@ -379,7 +377,6 @@ pub unsafe extern "C" fn otter_std_io_list_dir(path: *const c_char) -> u64 {
                             let _ = CString::from_raw(ptr);
                         }
                     }
-                }
             }
 
             list_handle

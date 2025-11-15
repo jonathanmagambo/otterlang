@@ -86,7 +86,7 @@ fn stringify_list_handle(handle: HandleId) -> String {
         let items = list
             .items
             .iter()
-            .map(|value| value_to_string(value))
+            .map(value_to_string)
             .collect::<Vec<_>>();
         format!("[{}]", items.join(", "))
     } else {
@@ -122,7 +122,7 @@ static ERRORS: Lazy<RwLock<std::collections::HashMap<HandleId, Error>>> =
 
 // Thread-local panic state
 thread_local! {
-    static PANIC_STATE: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+    static PANIC_STATE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 // Thread-local defer stack
@@ -1042,7 +1042,7 @@ pub extern "C" fn otter_builtin_stringify_list(handle: u64) -> *mut c_char {
         let items: Vec<String> = list
             .items
             .iter()
-            .map(|value| value_to_string(value))
+            .map(value_to_string)
             .collect();
         let json = format!("[{}]", items.join(", "));
         CString::new(json)

@@ -31,12 +31,10 @@ impl TestDiscovery {
         for path in paths {
             if path.is_dir() {
                 let pattern = format!("{}/**/*.ot", path.display());
-                for entry in glob(&pattern)? {
-                    if let Ok(file_path) = entry {
-                        files.push(file_path);
-                    }
+                for file_path in (glob(&pattern)?).flatten() {
+                    files.push(file_path);
                 }
-            } else if path.extension().map_or(false, |ext| ext == "ot") {
+            } else if path.extension().is_some_and(|ext| ext == "ot") {
                 files.push(path.clone());
             }
         }
@@ -65,8 +63,8 @@ impl TestDiscovery {
         let mut tests = Vec::new();
 
         for (idx, stmt) in program.statements.iter().enumerate() {
-            if let Statement::Function(func) = stmt {
-                if Self::is_test_function(func) {
+            if let Statement::Function(func) = stmt
+                && Self::is_test_function(func) {
                     let line_number = Self::estimate_line_number(&source, idx);
                     tests.push(TestCase {
                         file_path: file_path.to_path_buf(),
@@ -75,7 +73,6 @@ impl TestDiscovery {
                         line_number,
                     });
                 }
-            }
         }
 
         Ok(tests)

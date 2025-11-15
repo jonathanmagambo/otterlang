@@ -86,7 +86,7 @@ fn run_http_request(method: &str, url: &str, body: Option<&str>) -> HttpResponse
                     method = method,
                     path = path,
                     host = host,
-                    len = payload.as_bytes().len(),
+                    len = payload.len(),
                     payload = payload
                 ),
                 None => format!(

@@ -387,11 +387,11 @@ impl From<&Type> for TypeInfo {
             },
             Type::Generic { base, args } => match base.as_str() {
                 "List" | "list" => {
-                    let element = args.get(0).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
+                    let element = args.first().map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
                     TypeInfo::List(Box::new(element))
                 }
                 "Dict" | "dict" => {
-                    let key = args.get(0).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
+                    let key = args.first().map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
                     let value = args.get(1).map(TypeInfo::from).unwrap_or(TypeInfo::Unknown);
                     TypeInfo::Dict {
                         key: Box::new(key),
@@ -603,7 +603,7 @@ impl TypeContext {
         } else if args.len() < definition.generics.len() {
             let mut padded = args;
             padded.extend(
-                std::iter::repeat(TypeInfo::Unknown).take(definition.generics.len() - padded.len()),
+                std::iter::repeat_n(TypeInfo::Unknown, definition.generics.len() - padded.len()),
             );
             padded
         } else {
@@ -665,13 +665,11 @@ impl TypeContext {
 
     pub fn type_from_annotation(&self, ty: &Type) -> TypeInfo {
         let mut info = TypeInfo::from(ty);
-        if let TypeInfo::Generic { base, args } = &info {
-            if args.is_empty() {
-                if let Some(aliased_type) = self.resolve_type_alias(base) {
+        if let TypeInfo::Generic { base, args } = &info
+            && args.is_empty()
+                && let Some(aliased_type) = self.resolve_type_alias(base) {
                     info = aliased_type.clone();
                 }
-            }
-        }
         self.normalize_type(info)
     }
 

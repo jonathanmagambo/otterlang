@@ -181,9 +181,9 @@ fn create_waker(
         // Wake logic would go here
     }
 
-    unsafe fn wake_by_ref_waker(data: *const ()) {
+    unsafe fn wake_by_ref_waker(data: *const ()) { unsafe {
         wake_waker(data);
-    }
+    }}
 
     unsafe fn drop_waker(_data: *const ()) {}
 

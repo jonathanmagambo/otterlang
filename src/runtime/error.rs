@@ -69,7 +69,7 @@ pub struct ErrorStack;
 
 impl ErrorStack {
     thread_local! {
-        static CURRENT_ERROR: RefCell<Option<OtError>> = RefCell::new(None);
+        static CURRENT_ERROR: RefCell<Option<OtError>> = const { RefCell::new(None) };
     }
 
     /// Push a new error context (for nested error handling)
@@ -78,9 +78,9 @@ impl ErrorStack {
         // For now, we only support one level of error context
         // In a more advanced implementation, this could be a stack
         Self::CURRENT_ERROR.with(|error| {
-            let had_error = error.borrow().is_some();
+            
             // Don't overwrite existing errors
-            had_error
+            error.borrow().is_some()
         })
     }
 

@@ -24,10 +24,10 @@ pub fn cache_key_for_file(path: &Path) -> String {
     path.hash(&mut hasher);
 
     // Also hash file modification time if possible
-    if let Ok(metadata) = std::fs::metadata(path) {
-        if let Ok(modified) = metadata.modified() {
-            modified.hash(&mut hasher);
-        }
+    if let Ok(metadata) = std::fs::metadata(path)
+        && let Ok(modified) = metadata.modified()
+    {
+        modified.hash(&mut hasher);
     }
 
     format!("{:x}", hasher.finish())

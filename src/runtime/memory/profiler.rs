@@ -237,7 +237,7 @@ pub struct LeakInfo {
 
 /// Global memory profiler instance
 static GLOBAL_PROFILER: once_cell::sync::Lazy<MemoryProfiler> =
-    once_cell::sync::Lazy::new(|| MemoryProfiler::new());
+    once_cell::sync::Lazy::new(MemoryProfiler::new);
 
 /// Get the global memory profiler
 pub fn get_profiler() -> &'static MemoryProfiler {

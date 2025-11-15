@@ -161,7 +161,7 @@ pub unsafe extern "C" fn otter_test_snapshot(name: *const c_char, value: *const 
     match storage.get(&name_str) {
         Some(expected) => {
             if expected == &value_str {
-                return 0; // Match
+                0// Match
             } else {
                 eprintln!("Snapshot mismatch for '{}':", name_str);
                 eprintln!("  Expected: {}", expected);

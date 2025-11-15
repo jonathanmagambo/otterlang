@@ -99,7 +99,7 @@ impl TaskLocalRegistry {
         let mut registry = self.registry.lock();
         registry
             .entry(task_id)
-            .or_insert_with(TaskLocalStorage::new)
+            .or_default()
             .clone()
     }
 

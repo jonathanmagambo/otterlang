@@ -116,7 +116,7 @@ impl SymbolTable {
     fn add_reference(&mut self, name: String, span: Span) {
         self.references
             .entry(name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(span);
     }
 
@@ -300,17 +300,15 @@ impl LanguageServer for Backend {
             (text, symbol_table)
         };
 
-        if let (Some(text), Some(symbol_table)) = (text, symbol_table) {
-            if let Some(var_name) = word_at_position(&text, position) {
-                if let Some(symbol_info) = symbol_table.find_definition(&var_name) {
+        if let (Some(text), Some(symbol_table)) = (text, symbol_table)
+            && let Some(var_name) = word_at_position(&text, position)
+                && let Some(symbol_info) = symbol_table.find_definition(&var_name) {
                     let range = span_to_range(symbol_info.span, &text);
                     return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                         uri: uri.clone(),
                         range,
                     })));
                 }
-            }
-        }
 
         Ok(None)
     }
@@ -342,8 +340,8 @@ impl LanguageServer for Backend {
             (text, symbol_table)
         };
 
-        if let (Some(text), Some(symbol_table)) = (text, symbol_table) {
-            if let Some(var_name) = word_at_position(&text, position) {
+        if let (Some(text), Some(symbol_table)) = (text, symbol_table)
+            && let Some(var_name) = word_at_position(&text, position) {
                 let mut locations = Vec::new();
 
                 // Add definition
@@ -364,7 +362,6 @@ impl LanguageServer for Backend {
 
                 return Ok(Some(locations));
             }
-        }
 
         Ok(None)
     }
@@ -468,8 +465,8 @@ impl LanguageServer for Backend {
             (text, symbol_table)
         };
 
-        if let (Some(text), Some(symbol_table)) = (text, symbol_table) {
-            if let Some(old_name) = word_at_position(&text, position) {
+        if let (Some(text), Some(symbol_table)) = (text, symbol_table)
+            && let Some(old_name) = word_at_position(&text, position) {
                 let mut changes = HashMap::new();
                 let mut edits = Vec::new();
 
@@ -498,7 +495,6 @@ impl LanguageServer for Backend {
                     }));
                 }
             }
-        }
 
         Ok(None)
     }
@@ -514,9 +510,9 @@ impl LanguageServer for Backend {
             (text, symbol_table)
         };
 
-        if let (Some(text), Some(symbol_table)) = (text, symbol_table) {
-            if let Some(var_name) = word_at_position(&text, position) {
-                if let Some(symbol_info) = symbol_table.find_definition(&var_name) {
+        if let (Some(text), Some(symbol_table)) = (text, symbol_table)
+            && let Some(var_name) = word_at_position(&text, position)
+                && let Some(symbol_info) = symbol_table.find_definition(&var_name) {
                     let kind_str = match symbol_info.kind {
                         SymbolKind::Function => "function",
                         SymbolKind::Variable => "variable",
@@ -538,8 +534,6 @@ impl LanguageServer for Backend {
                         range: Some(span_to_range(symbol_info.span, &text)),
                     }));
                 }
-            }
-        }
 
         Ok(None)
     }
@@ -720,7 +714,7 @@ fn span_to_position(byte_offset: usize, text: &str) -> Position {
 pub async fn run_stdio_server() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    let (service, socket) = LspService::new(|client| Backend::new(client));
+    let (service, socket) = LspService::new(Backend::new);
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 
@@ -762,7 +756,7 @@ fn build_symbol_table_from_statements(
                 }
                 for param in &func.params {
                     if let Some(span) = param.span {
-                        let ty = param.ty.as_ref().map(|t| format_type(t));
+                        let ty = param.ty.as_ref().map(format_type);
                         table.add_parameter(param.name.clone(), span, ty);
                     }
                 }
@@ -963,11 +957,10 @@ fn collect_references_from_expr(
 /// Find span of a name in tokens (approximate)
 fn find_name_span(name: &str, tokens: &[Token], _text: &str) -> Option<Span> {
     for token in tokens {
-        if let lexer::token::TokenKind::Identifier(ref id) = token.kind {
-            if id == name {
+        if let lexer::token::TokenKind::Identifier(ref id) = token.kind
+            && id == name {
                 return Some(token.span);
             }
-        }
     }
     None
 }
@@ -1081,7 +1074,7 @@ fn word_at_position(text: &str, position: Position) -> Option<String> {
 fn collect_identifiers(text: &str) -> Vec<String> {
     let mut set = BTreeSet::new();
     for token in text.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
-        if token.len() > 1 && token.chars().next().map_or(false, |c| c.is_alphabetic()) {
+        if token.len() > 1 && token.chars().next().is_some_and(|c| c.is_alphabetic()) {
             set.insert(token.to_string());
         }
     }

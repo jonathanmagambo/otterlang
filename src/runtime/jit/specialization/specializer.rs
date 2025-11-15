@@ -6,6 +6,12 @@ pub struct Specializer {
     cache: HashMap<SpecializationKey, usize>,
 }
 
+impl Default for Specializer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Specializer {
     pub fn new() -> Self {
         Self {

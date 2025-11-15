@@ -43,18 +43,15 @@ impl ReplEngine {
     }
 
     pub fn evaluate(&mut self, input: &str) -> Result<EvaluationResult> {
-        match input.trim() {
-            "clear" => {
-                self.program = Program {
-                    statements: Vec::new(),
-                };
-                self.executor = None;
-                return Ok(EvaluationResult {
-                    output: Some("Cleared program state.".to_string()),
-                    kind: EvaluationKind::Info,
-                });
-            }
-            _ => {}
+        if input.trim() == "clear" {
+            self.program = Program {
+                statements: Vec::new(),
+            };
+            self.executor = None;
+            return Ok(EvaluationResult {
+                output: Some("Cleared program state.".to_string()),
+                kind: EvaluationKind::Info,
+            });
         }
         let tokens = tokenize(input).map_err(|errors| {
             anyhow::anyhow!(
@@ -77,8 +74,8 @@ impl ReplEngine {
         })?;
 
         let mut statements = parsed.statements;
-        if statements.is_empty() && !tokens.is_empty() {
-            if let Ok(expr) = self.parse_expression(input) {
+        if statements.is_empty() && !tokens.is_empty()
+            && let Ok(expr) = self.parse_expression(input) {
                 statements.push(Statement::Function(ast::nodes::Function {
                     name: "__repl_expr".to_string(),
                     params: Vec::new(),
@@ -89,7 +86,6 @@ impl ReplEngine {
                     public: false,
                 }));
             }
-        }
 
         let num_statements = statements.len();
 
@@ -123,12 +119,11 @@ impl ReplEngine {
                         }
                     }) {
                         executor.execute_main()?;
-                    } else if let Some(Statement::Function(f)) = self.program.statements.last() {
-                        if f.name == "__repl_expr" {
+                    } else if let Some(Statement::Function(f)) = self.program.statements.last()
+                        && f.name == "__repl_expr" {
                             executor.execute_main()?;
                             self.program.statements.pop();
                         }
-                    }
                     self.executor = Some(executor);
                 }
                 Err(e) => {

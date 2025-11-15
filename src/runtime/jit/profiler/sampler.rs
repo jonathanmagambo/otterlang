@@ -28,7 +28,7 @@ impl Sampler {
     pub fn record_call(&mut self, function_name: &str, _duration: Duration) {
         self.call_counter += 1;
 
-        if self.call_counter % self.sample_interval == 0 {
+        if self.call_counter.is_multiple_of(self.sample_interval) {
             *self.samples.entry(function_name.to_string()).or_insert(0) += 1;
         }
     }

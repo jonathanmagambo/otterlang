@@ -223,14 +223,13 @@ pub extern "C" fn otter_task_send_float(handle: u64, value: f64) -> i32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn otter_task_recv_string(handle: u64) -> *mut c_char {
-    if let Some(wrapper) = STRING_CHANNELS.lock().get(&handle) {
-        if let Some(value) = wrapper.channel.recv() {
+    if let Some(wrapper) = STRING_CHANNELS.lock().get(&handle)
+        && let Some(value) = wrapper.channel.recv() {
             return CString::new(value)
                 .ok()
                 .map(CString::into_raw)
                 .unwrap_or(std::ptr::null_mut());
         }
-    }
     std::ptr::null_mut()
 }
 

@@ -97,11 +97,10 @@ impl TestReporter {
         if failed > 0 {
             println!("\n{}", "Failed Tests:".red().bold());
             for (test, result) in &self.results {
-                if matches!(result, TestResult::Failed { .. }) {
-                    if let TestResult::Failed { error, .. } = result {
+                if matches!(result, TestResult::Failed { .. })
+                    && let TestResult::Failed { error, .. } = result {
                         println!("  {} - {}", test.function_name.red(), error);
                     }
-                }
             }
         }
     }

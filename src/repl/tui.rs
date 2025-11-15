@@ -132,12 +132,10 @@ impl Tui {
             KeyCode::Enter => {
                 if is_ctrl(&key) {
                     self.execute_input();
+                } else if self.needs_continuation() {
+                    self.insert_newline_with_indent();
                 } else {
-                    if self.needs_continuation() {
-                        self.insert_newline_with_indent();
-                    } else {
-                        self.execute_input();
-                    }
+                    self.execute_input();
                 }
             }
             KeyCode::Up => {
@@ -418,7 +416,7 @@ impl Tui {
         if let Some(proj_dirs) = ProjectDirs::from("com", "otterlang", "otterlang") {
             let history_dir = proj_dirs.config_dir();
 
-            if let Err(_) = fs::create_dir_all(history_dir) {
+            if fs::create_dir_all(history_dir).is_err() {
                 return;
             }
 
@@ -427,7 +425,7 @@ impl Tui {
             if let Ok(mut file) = fs::File::create(&history_file) {
                 let start = self.state.history.len().saturating_sub(1000);
                 for line in &self.state.history[start..] {
-                    if let Err(_) = writeln!(file, "{}", line) {
+                    if writeln!(file, "{}", line).is_err() {
                         return;
                     }
                 }

@@ -39,6 +39,12 @@ pub struct FunctionCache {
     functions: HashMap<String, CachedFunction>,
 }
 
+impl Default for FunctionCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FunctionCache {
     pub fn new() -> Self {
         Self {
