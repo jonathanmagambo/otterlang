@@ -60,6 +60,8 @@
             RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
             LLVM_SYS_181_PREFIX = "${llvm.llvm.dev}";
             LLVM_SYS_180_PREFIX = "${llvm.llvm.dev}";
+            CC = "${llvm.clang-unwrapped}/bin/clang";
+            CXX = "${llvm.clang-unwrapped}/bin/clang++";
 
             RUSTFLAGS =
               "-Zshare-generics=y"

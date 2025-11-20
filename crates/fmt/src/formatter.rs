@@ -29,14 +29,23 @@ impl Formatter {
     fn format_statement(&self, stmt: &Statement, indent: usize) -> String {
         match stmt {
             Statement::Let {
-                name, expr, public, ..
+                name,
+                ty,
+                expr,
+                public,
+                ..
             } => {
                 let pub_str = if *public { "pub " } else { "" };
+                let ty_str = ty
+                    .as_ref()
+                    .map(|ty| format!(": {}", self.format_type(ty)))
+                    .unwrap_or_default();
                 format!(
-                    "{}{}let {} = {}\n",
+                    "{}{}let {}{} = {}\n",
                     self.indent(indent),
                     pub_str,
                     name,
+                    ty_str,
                     self.format_expr(expr, indent)
                 )
             }

@@ -86,8 +86,8 @@ fn locate_llvm_config() -> Option<PathBuf> {
         .unwrap_or_else(PathBuf::new);
 
     if let Some(raw) = env::var_os(&*ENV_LLVM_PREFIX) {
-        println!(
-            "cargo:warning=Requested LLVM_SYS prefix via {} => {}",
+        eprintln!(
+            "info: llvm-sys using {} => {}",
             *ENV_LLVM_PREFIX,
             PathBuf::from(&raw).display()
         );
@@ -99,18 +99,18 @@ fn locate_llvm_config() -> Option<PathBuf> {
     }
 
     if let Some(x) = llvm_compatible_binary_name(&prefix) {
-        println!("cargo:warning=Found llvm-config via {}", x.display());
+        eprintln!("info: llvm-sys found llvm-config via {}", x.display());
         return Some(x);
     }
 
     if let Some(prefix180) = env::var_os("LLVM_SYS_180_PREFIX") {
-        println!(
-            "cargo:warning=Trying fallback LLVM_SYS_180_PREFIX => {}",
+        eprintln!(
+            "info: llvm-sys trying fallback LLVM_SYS_180_PREFIX => {}",
             PathBuf::from(&prefix180).display()
         );
         if let Some(x) = llvm_compatible_binary_name(&PathBuf::from(&prefix180).join("bin")) {
-            println!(
-                "cargo:warning=Found llvm-config via fallback {}",
+            eprintln!(
+                "info: llvm-sys found llvm-config via fallback {}",
                 x.display()
             );
             return Some(x);

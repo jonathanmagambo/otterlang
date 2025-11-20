@@ -712,12 +712,17 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
     let let_stmt = pub_keyword
         .clone()
         .then(just(TokenKind::Let).or_not())
-        .then(identifier_parser().map_with_span(|name, span| (name, span)))
+        .then(
+            identifier_parser()
+                .map_with_span(|name, span| (name, span))
+                .then(just(TokenKind::Colon).ignore_then(type_parser()).or_not()),
+        )
         .then_ignore(just(TokenKind::Equals))
         .then(expr.clone())
         .map(
-            |(((pub_kw, _let), (name, name_span)), expr)| Statement::Let {
+            |(((pub_kw, _let), ((name, name_span), ty)), expr)| Statement::Let {
                 name,
+                ty,
                 expr,
                 public: pub_kw.is_some(),
                 span: Some(Span::new(name_span.start, name_span.end)),

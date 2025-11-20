@@ -146,6 +146,7 @@ pub enum Statement {
     // Variable declarations and assignments
     Let {
         name: String,
+        ty: Option<Type>,
         expr: Expr,
         public: bool,
         span: Option<Span>,

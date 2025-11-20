@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
-use tempfile::env::temp_dir;
 use tracing::{debug, info, warn};
 
 use crate::codegen::{
@@ -384,9 +383,14 @@ pub fn compile_pipeline(
     }
 
     let codegen_options = settings.codegen_options();
-    let binary_path = cache_manager
-        .binary_path(&cache_key)
-        .unwrap_or_else(|| temp_dir().join("tmp_binary"));
+    let binary_path = if let Some(path) = cache_manager.binary_path(&cache_key) {
+        ensure_output_directory(&path)?;
+        path
+    } else {
+        let fallback = PathBuf::from("./target/tmp_binary");
+        ensure_output_directory(&fallback)?;
+        fallback
+    };
 
     let artifact = profiler.record_phase("Codegen", || {
         build_executable_with_backend(&program, &expr_types, &binary_path, &codegen_options)
@@ -421,6 +425,16 @@ pub fn compile_pipeline(
         profiler,
         result: CompilationResult::Compiled { artifact, metadata },
     })
+}
+
+fn ensure_output_directory(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).with_context(|| {
+            format!("failed to create output directory {}", parent.display())
+        })?;
+    }
+
+    Ok(())
 }
 
 pub struct CompilationStage {

@@ -891,9 +891,40 @@ impl TypeChecker {
     /// Type check a statement
     fn check_statement(&mut self, statement: &Statement) -> Result<()> {
         match statement {
-            Statement::Let { name, expr, .. } => {
+            Statement::Let {
+                name,
+                ty,
+                expr,
+                span,
+                ..
+            } => {
                 let expr_type = self.infer_expr_type(expr)?;
-                self.context.insert_variable(name.clone(), expr_type);
+                if let Some(annotation) = ty {
+                    let annotated_type = self.context.type_from_annotation(annotation);
+                    if !expr_type.is_compatible_with(&annotated_type) {
+                        self.errors.push(
+                            TypeError::new(format!(
+                                "type mismatch: expected {}, got {}",
+                                annotated_type.display_name(),
+                                expr_type.display_name()
+                            ))
+                            .with_hint(format!(
+                                "The variable `{}` is declared as `{}`, but the initializer has type `{}`",
+                                name,
+                                annotated_type.display_name(),
+                                expr_type.display_name()
+                            ))
+                            .with_help(
+                                "Update the annotation or change the initializer to match the declared type"
+                                    .to_string(),
+                            )
+                            .with_optional_span(*span),
+                        );
+                    }
+                    self.context.insert_variable(name.clone(), annotated_type);
+                } else {
+                    self.context.insert_variable(name.clone(), expr_type);
+                }
             }
             Statement::Assignment { name, expr, span } => {
                 let var_type = self

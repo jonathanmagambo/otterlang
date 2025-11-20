@@ -1,129 +1,26 @@
-use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Result};
+use ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
 use inkwell::AddressSpace;
-use inkwell::OptimizationLevel;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::Module;
 use inkwell::passes::PassBuilderOptions;
-use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
-};
+use inkwell::targets::TargetMachine;
 use inkwell::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType};
 use inkwell::values::{
     BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
 };
-
-use crate::codegen::CodegenBackendType;
-use crate::codegen::target::TargetTriple;
-use crate::runtime::ffi::register_dynamic_exports;
-use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType, SymbolRegistry};
-use crate::typecheck::TypeInfo;
-use ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
-use ffi::{BridgeSymbolRegistry, CargoBridge, DynamicLibraryLoader, FunctionSpec, TypeSpec};
-use libloading::Library;
 use tracing::warn;
 
-pub struct CodegenOptions {
-    pub emit_ir: bool,
-    pub opt_level: CodegenOptLevel,
-    pub enable_lto: bool,
-    pub enable_pgo: bool,
-    pub pgo_profile_file: Option<PathBuf>,
-    pub inline_threshold: Option<u32>,
-    /// Target triple for cross-compilation (defaults to native)
-    pub target: Option<TargetTriple>,
-    /// Codegen backend to use
-    pub backend: CodegenBackendType,
-}
+use crate::runtime::symbol_registry::{FfiSignature, FfiType, SymbolRegistry};
+use crate::typecheck::TypeInfo;
 
-impl Default for CodegenOptions {
-    fn default() -> Self {
-        Self {
-            emit_ir: false,
-            opt_level: CodegenOptLevel::Default,
-            enable_lto: false,
-            enable_pgo: false,
-            pgo_profile_file: None,
-            inline_threshold: None,            // Use LLVM default
-            target: None,                      // Use native target
-            backend: CodegenBackendType::LLVM, // Default to LLVM for compatibility
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum CodegenOptLevel {
-    None,
-    Default,
-    Aggressive,
-}
-
-impl From<CodegenOptLevel> for OptimizationLevel {
-    fn from(value: CodegenOptLevel) -> Self {
-        match value {
-            CodegenOptLevel::None => OptimizationLevel::None,
-            CodegenOptLevel::Default => OptimizationLevel::Default,
-            CodegenOptLevel::Aggressive => OptimizationLevel::Aggressive,
-        }
-    }
-}
-
-fn llvm_triple_to_string(triple: &inkwell::targets::TargetTriple) -> String {
-    triple
-        .as_str()
-        .to_str()
-        .unwrap_or("unknown-unknown-unknown")
-        .to_string()
-}
-
-pub(crate) fn preferred_target_flag(driver: &str) -> &'static str {
-    if driver_prefers_clang_style(driver) {
-        "-target"
-    } else {
-        "--target"
-    }
-}
-
-fn driver_prefers_clang_style(driver: &str) -> bool {
-    let lower = driver.to_ascii_lowercase();
-    if lower.contains("clang") || lower.contains("wasm-ld") {
-        return true;
-    }
-
-    match Path::new(driver)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.to_ascii_lowercase())
-    {
-        Some(ref name) if name == "cc" || name == "c++" => compiler_reports_clang(driver),
-        _ => false,
-    }
-}
-
-fn compiler_reports_clang(driver: &str) -> bool {
-    Command::new(driver)
-        .arg("--version")
-        .output()
-        .ok()
-        .map(|output| {
-            let mut text = String::new();
-            text.push_str(&String::from_utf8_lossy(&output.stdout));
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
-            text.to_ascii_lowercase().contains("clang")
-        })
-        .unwrap_or(false)
-}
-
-pub struct BuildArtifact {
-    pub binary: PathBuf,
-    pub ir: Option<String>,
-}
+use super::config::CodegenOptLevel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OtterType {
@@ -228,605 +125,22 @@ impl<'ctx> FunctionContext<'ctx> {
     }
 }
 
-pub fn current_llvm_version() -> String {
-    "15.0".to_string()
-}
-
-pub fn build_executable(
-    program: &Program,
-    expr_types: &HashMap<usize, TypeInfo>,
-    output: &Path,
-    options: &CodegenOptions,
-) -> Result<BuildArtifact> {
-    let context = LlvmContext::create();
-    let module = context.create_module("otter");
-    let builder = context.create_builder();
-    let registry = crate::runtime::ffi::bootstrap_stdlib();
-    let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
-
-    compiler.lower_program(program, true)?; // Require main for executables
-    compiler
-        .module
-        .verify()
-        .map_err(|e| anyhow!("LLVM module verification failed: {e}"))?;
-
-    if options.emit_ir {
-        // Ensure IR snapshot happens before LLVM potentially mutates the module during codegen.
-        compiler.cached_ir = Some(compiler.module.print_to_string().to_string());
-    }
-
-    // Initialize all LLVM targets before creating any target triples
-    Target::initialize_all(&InitializationConfig::default());
-
-    // Determine target triple: use provided target or fall back to native
-    let runtime_triple = options.target.clone().unwrap_or_else(|| {
-        let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-        TargetTriple::parse(&llvm_triple_to_string(&native_triple))
-            .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")))
-    });
-
-    // Convert to LLVM triple format
-    let triple_str = runtime_triple.to_llvm_triple();
-    let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
-
-    // Check if we're compiling for the native target
-    let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-    let is_native_target =
-        llvm_triple_to_string(&llvm_triple) == llvm_triple_to_string(&native_triple);
-    compiler.module.set_triple(&llvm_triple);
-
-    let target = Target::from_triple(&llvm_triple)
-        .map_err(|e| anyhow!("failed to create target from triple {}: {e}", triple_str))?;
-
-    let optimization: OptimizationLevel = options.opt_level.into();
-    let reloc_mode = if runtime_triple.needs_pic() {
-        RelocMode::PIC
-    } else {
-        RelocMode::Default
-    };
-    let target_machine = target
-        .create_target_machine(
-            &llvm_triple,
-            "generic",
-            "",
-            optimization,
-            reloc_mode,
-            CodeModel::Default,
-        )
-        .ok_or_else(|| anyhow!("failed to create target machine"))?;
-
-    compiler
-        .module
-        .set_data_layout(&target_machine.get_target_data().get_data_layout());
-
-    compiler.run_default_passes(
-        options.opt_level,
-        options.enable_pgo,
-        options.pgo_profile_file.as_deref(),
-        options.inline_threshold,
-        &target_machine,
-    );
-
-    let object_path = output.with_extension("o");
-    target_machine
-        .write_to_file(&compiler.module, FileType::Object, &object_path)
-        .map_err(|e| {
-            anyhow!(
-                "failed to emit object file at {}: {e}",
-                object_path.display()
-            )
-        })?;
-
-    // Create a C runtime shim for the FFI functions (target-specific)
-    let runtime_c = if runtime_triple.is_wasm() {
-        None
-    } else {
-        let runtime_c = output.with_extension("runtime.c");
-        let runtime_c_content = runtime_triple.runtime_c_code();
-        fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
-        Some(runtime_c)
-    };
-
-    // Compile runtime C file (target-specific)
-    let runtime_o = if let Some(ref rt_c) = runtime_c {
-        let runtime_o = output.with_extension("runtime.o");
-        let c_compiler = runtime_triple.c_compiler();
-        let mut cc = Command::new(&c_compiler);
-
-        // Add target-specific compiler flags
-        cc.arg("-c");
-        if runtime_triple.needs_pic() && !runtime_triple.is_windows() {
-            cc.arg("-fPIC");
-        }
-        // Add target triple for cross-compilation (skip for native target)
-        if !is_native_target {
-            let compiler_target_flag = preferred_target_flag(&c_compiler);
-            cc.arg(compiler_target_flag).arg(&triple_str);
-        }
-
-        cc.arg(rt_c).arg("-o").arg(&runtime_o);
-
-        let cc_status = cc.status().context("failed to compile runtime C file")?;
-
-        if !cc_status.success() {
-            bail!("failed to compile runtime C file");
-        }
-
-        Some(runtime_o)
-    } else {
-        None
-    };
-
-    // Link the object files together (target-specific)
-    let linker = runtime_triple.linker();
-    let mut cc = Command::new(&linker);
-
-    // Add target-specific linker flags
-    if runtime_triple.is_wasm() {
-        // WebAssembly linking
-        let linker_target_flag = preferred_target_flag(&linker);
-        cc.arg(linker_target_flag)
-            .arg(&triple_str)
-            .arg("--no-entry")
-            .arg("--export-dynamic")
-            .arg(&object_path)
-            .arg("-o")
-            .arg(output);
-    } else {
-        // Standard linking
-        if !is_native_target {
-            let linker_target_flag = preferred_target_flag(&linker);
-            cc.arg(linker_target_flag).arg(&triple_str);
-        }
-        if let Some(ref rt_o) = runtime_o {
-            cc.arg(&object_path).arg(rt_o).arg("-o").arg(output);
-        } else {
-            cc.arg(&object_path).arg("-o").arg(output);
-        }
-    }
-
-    // Apply target-specific linker flags
-    for flag in runtime_triple.linker_flags() {
-        cc.arg(&flag);
-    }
-
-    if options.enable_lto && !runtime_triple.is_wasm() {
-        cc.arg("-flto");
-        // Note: clang doesn't support -flto=O2/O3, use -O flags instead
-        match options.opt_level {
-            CodegenOptLevel::None => {}
-            CodegenOptLevel::Default => {
-                cc.arg("-O2");
-            }
-            CodegenOptLevel::Aggressive => {
-                cc.arg("-O3");
-            }
-        }
-    }
-
-    // PGO support: if profile file is provided, use it for optimization
-    if options.enable_pgo && !runtime_triple.is_wasm() {
-        if let Some(ref profile_file) = options.pgo_profile_file {
-            cc.arg("-fprofile-use");
-            cc.arg(profile_file);
-        } else {
-            // Generate profile instrumentation
-            cc.arg("-fprofile-instr-generate");
-        }
-    }
-
-    for lib in &bridge_libraries {
-        cc.arg(lib);
-    }
-
-    let status = cc.status().context("failed to invoke system linker (cc)")?;
-
-    if !status.success() {
-        bail!("linker invocation failed with status {status}");
-    }
-
-    // Clean up temporary files
-    if let Some(ref rt_c) = runtime_c {
-        fs::remove_file(rt_c).ok();
-    }
-    if let Some(ref rt_o) = runtime_o {
-        fs::remove_file(rt_o).ok();
-    }
-
-    fs::remove_file(&object_path).ok();
-
-    Ok(BuildArtifact {
-        binary: output.to_path_buf(),
-        ir: compiler.cached_ir.take(),
-    })
-}
-
-/// Build a shared library (.so/.dylib) for JIT execution
-pub fn build_shared_library(
-    program: &Program,
-    expr_types: &HashMap<usize, TypeInfo>,
-    output: &Path,
-    options: &CodegenOptions,
-) -> Result<BuildArtifact> {
-    let context = LlvmContext::create();
-    let module = context.create_module("otter_jit");
-    let builder = context.create_builder();
-    let registry = crate::runtime::ffi::bootstrap_stdlib();
-    let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
-
-    compiler.lower_program(program, false)?; // Don't require main for shared libraries
-    compiler
-        .module
-        .verify()
-        .map_err(|e| anyhow!("LLVM module verification failed: {e}"))?;
-
-    if options.emit_ir {
-        compiler.cached_ir = Some(compiler.module.print_to_string().to_string());
-    }
-
-    // Initialize all LLVM targets before creating any target triples
-    Target::initialize_all(&InitializationConfig::default());
-
-    // Determine target triple: use provided target or fall back to native
-    let runtime_triple = if let Some(ref target) = options.target {
-        target.clone()
-    } else {
-        // Get native target triple directly from LLVM
-        let native_triple = inkwell::targets::TargetMachine::get_default_triple();
-        let native_str = llvm_triple_to_string(&native_triple);
-        TargetTriple::parse(&native_str)
-            .unwrap_or_else(|_| TargetTriple::new("x86_64", "unknown", "linux", Some("gnu")))
-    };
-
-    // Convert to LLVM triple format
-    let triple_str = runtime_triple.to_llvm_triple();
-    let llvm_triple = inkwell::targets::TargetTriple::create(&triple_str);
-    compiler.module.set_triple(&llvm_triple);
-
-    let target = Target::from_triple(&llvm_triple)
-        .map_err(|e| anyhow!("failed to create target from triple {}: {e}", triple_str))?;
-
-    let optimization: OptimizationLevel = options.opt_level.into();
-    let reloc_mode = RelocMode::PIC;
-    let target_machine = target
-        .create_target_machine(
-            &llvm_triple,
-            "generic",
-            "",
-            optimization,
-            reloc_mode,
-            CodeModel::Default,
-        )
-        .ok_or_else(|| anyhow!("failed to create target machine"))?;
-
-    compiler
-        .module
-        .set_data_layout(&target_machine.get_target_data().get_data_layout());
-
-    compiler.run_default_passes(
-        options.opt_level,
-        options.enable_pgo,
-        options.pgo_profile_file.as_deref(),
-        options.inline_threshold,
-        &target_machine,
-    );
-
-    // Compile to object file with position-independent code
-    let object_path = output.with_extension("o");
-    target_machine
-        .write_to_file(&compiler.module, FileType::Object, &object_path)
-        .map_err(|e| {
-            anyhow!(
-                "failed to emit object file at {}: {e}",
-                object_path.display()
-            )
-        })?;
-
-    // Create runtime C file (target-specific)
-    let runtime_c = if runtime_triple.is_wasm() {
-        None
-    } else {
-        let runtime_c = output.with_extension("runtime.c");
-        let runtime_c_content = runtime_triple.runtime_c_code();
-        fs::write(&runtime_c, runtime_c_content).context("failed to write runtime C file")?;
-        Some(runtime_c)
-    };
-
-    // Compile runtime C file (target-specific)
-    let runtime_o = if let Some(ref rt_c) = runtime_c {
-        let runtime_o = output.with_extension("runtime.o");
-        let c_compiler = runtime_triple.c_compiler();
-        let mut cc = Command::new(&c_compiler);
-
-        // Add target-specific compiler flags
-        cc.arg("-c");
-        if runtime_triple.needs_pic() && !runtime_triple.is_windows() {
-            cc.arg("-fPIC");
-        }
-        let compiler_target_flag = preferred_target_flag(&c_compiler);
-        cc.arg(compiler_target_flag).arg(&triple_str);
-
-        cc.arg(rt_c).arg("-o").arg(&runtime_o);
-
-        let cc_status = cc.status().context("failed to compile runtime C file")?;
-
-        if !cc_status.success() {
-            bail!("failed to compile runtime C file");
-        }
-
-        Some(runtime_o)
-    } else {
-        None
-    };
-
-    // Determine shared library extension (target-specific)
-    let lib_ext = if runtime_triple.is_wasm() {
-        "wasm"
-    } else if runtime_triple.is_windows() {
-        "dll"
-    } else if runtime_triple.os == "darwin" {
-        "dylib"
-    } else {
-        "so"
-    };
-
-    let lib_path = if output.extension().is_some() && output.extension().unwrap() == lib_ext {
-        output.to_path_buf()
-    } else {
-        output.with_extension(lib_ext)
-    };
-
-    // Link as shared library (target-specific)
-    let linker = runtime_triple.linker();
-    let mut cc = Command::new(&linker);
-
-    let linker_target_flag = preferred_target_flag(&linker);
-    if runtime_triple.is_wasm() {
-        cc.arg(linker_target_flag)
-            .arg(&triple_str)
-            .arg("--no-entry")
-            .arg("--export-dynamic")
-            .arg("-o")
-            .arg(&lib_path)
-            .arg(&object_path);
-    } else {
-        cc.arg("-shared");
-        if runtime_triple.needs_pic() {
-            cc.arg("-fPIC");
-        }
-        cc.arg(linker_target_flag).arg(&triple_str);
-        cc.arg("-o").arg(&lib_path).arg(&object_path);
-        if let Some(ref rt_o) = runtime_o {
-            cc.arg(rt_o);
-        }
-    }
-
-    // Apply target-specific linker flags
-    for flag in runtime_triple.linker_flags() {
-        cc.arg(&flag);
-    }
-
-    if options.enable_lto && !runtime_triple.is_wasm() {
-        cc.arg("-flto");
-        // Note: clang doesn't support -flto=O2/O3, use -O flags instead
-        match options.opt_level {
-            CodegenOptLevel::None => {}
-            CodegenOptLevel::Default => {
-                cc.arg("-O2");
-            }
-            CodegenOptLevel::Aggressive => {
-                cc.arg("-O3");
-            }
-        }
-    }
-
-    // PGO support: if profile file is provided, use it for optimization
-    if options.enable_pgo && !runtime_triple.is_wasm() {
-        if let Some(ref profile_file) = options.pgo_profile_file {
-            cc.arg("-fprofile-use");
-            cc.arg(profile_file);
-        } else {
-            // Generate profile instrumentation
-            cc.arg("-fprofile-instr-generate");
-        }
-    }
-
-    for lib in &bridge_libraries {
-        cc.arg(lib);
-    }
-
-    let status = cc.status().context("failed to invoke system linker (cc)")?;
-
-    if !status.success() {
-        bail!("linker invocation failed with status {status}");
-    }
-
-    // Clean up temporary files
-    if let Some(ref rt_c) = runtime_c {
-        fs::remove_file(rt_c).ok();
-    }
-    if let Some(ref rt_o) = runtime_o {
-        fs::remove_file(rt_o).ok();
-    }
-    fs::remove_file(&object_path).ok();
-
-    Ok(BuildArtifact {
-        binary: lib_path,
-        ir: compiler.cached_ir.take(),
-    })
-}
-
-pub(crate) fn prepare_rust_bridges(
-    program: &Program,
-    registry: &SymbolRegistry,
-) -> Result<Vec<PathBuf>> {
-    let imports = collect_rust_imports(program);
-    if imports.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let bridge_registry = BridgeSymbolRegistry::global().clone();
-    let cargo_bridge = CargoBridge::new(bridge_registry.clone())?;
-    let loader = DynamicLibraryLoader::global();
-    let mut libraries = Vec::new();
-
-    for (crate_name, aliases) in imports {
-        let metadata = bridge_registry.ensure_metadata(&crate_name)?;
-        let artifacts = cargo_bridge.ensure_bridge(&crate_name)?;
-        loader.load(&artifacts.library_path).with_context(|| {
-            format!("failed to load Rust bridge library for crate `{crate_name}`")
-        })?;
-        // Register all exports directly from the library (transparent + manual entries)
-        unsafe {
-            let lib = Library::new(&artifacts.library_path).with_context(|| {
-                format!(
-                    "failed to open library {}",
-                    artifacts.library_path.display()
-                )
-            })?;
-            register_dynamic_exports(&lib, registry)?;
-        }
-        // Also register planned functions to ensure symbol aliases are available immediately
-        register_bridge_functions(&crate_name, &aliases, &metadata.functions, registry)?;
-        libraries.push(artifacts.library_path.clone());
-    }
-
-    Ok(libraries)
-}
-
-fn collect_rust_imports(program: &Program) -> HashMap<String, HashSet<String>> {
-    let mut imports: HashMap<String, HashSet<String>> = HashMap::new();
-
-    for statement in &program.statements {
-        if let Statement::Use {
-            imports: use_imports,
-        } = statement
-        {
-            for import in use_imports {
-                if let Some((namespace, crate_name)) = import.module.split_once(':')
-                    && namespace == "rust"
-                {
-                    let aliases = imports.entry(crate_name.to_string()).or_default();
-                    aliases.insert(crate_name.to_string());
-                    if let Some(alias_name) = &import.alias {
-                        aliases.insert(alias_name.clone());
-                    }
-                }
-            }
-        }
-    }
-
-    imports
-}
-
-fn register_bridge_functions(
-    crate_name: &str,
-    aliases: &HashSet<String>,
-    functions: &[FunctionSpec],
-    registry: &SymbolRegistry,
-) -> Result<()> {
-    if functions.is_empty() {
-        return Ok(());
-    }
-
-    for function in functions {
-        let canonical_name = if function.name.contains(':') || function.name.contains('.') {
-            function.name.clone()
-        } else {
-            format!("{crate_name}:{}", function.name)
-        };
-
-        let params = function
-            .params
-            .iter()
-            .enumerate()
-            .map(|(idx, param)| {
-                type_spec_to_ffi(param, "parameter", &canonical_name).with_context(|| {
-                    format!("parameter {idx} in `{canonical_name}` is not FFI compatible")
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let result = type_spec_to_ffi(&function.result, "return", &canonical_name)?;
-        let signature = FfiSignature::new(params.clone(), result.clone());
-
-        registry.register(FfiFunction {
-            name: canonical_name.clone(),
-            symbol: function.symbol.clone(),
-            signature: signature.clone(),
-        });
-
-        for alias in aliases {
-            let alias_name = alias_name(alias, crate_name, &canonical_name);
-            registry.register(FfiFunction {
-                name: alias_name,
-                symbol: function.symbol.clone(),
-                signature: FfiSignature::new(params.clone(), result.clone()),
-            });
-        }
-    }
-
-    registry.register(FfiFunction {
-        name: format!("{crate_name}.__call_json"),
-        symbol: "otter_call_json".into(),
-        signature: FfiSignature::new(vec![FfiType::Str, FfiType::Str], FfiType::Str),
-    });
-
-    for alias in aliases {
-        registry.register(FfiFunction {
-            name: format!("{alias}.__call_json"),
-            symbol: "otter_call_json".into(),
-            signature: FfiSignature::new(vec![FfiType::Str, FfiType::Str], FfiType::Str),
-        });
-    }
-
-    Ok(())
-}
-
-fn type_spec_to_ffi(spec: &TypeSpec, position: &str, function_name: &str) -> Result<FfiType> {
-    match spec {
-        TypeSpec::Unit => {
-            if position == "return" {
-                Ok(FfiType::Unit)
-            } else {
-                bail!("`{function_name}` cannot accept a unit value in parameter position")
-            }
-        }
-        TypeSpec::Bool => Ok(FfiType::Bool),
-        TypeSpec::I32 => Ok(FfiType::I32),
-        TypeSpec::I64 => Ok(FfiType::I64),
-        TypeSpec::F64 => Ok(FfiType::F64),
-        TypeSpec::Str => Ok(FfiType::Str),
-        TypeSpec::Opaque => Ok(FfiType::Opaque),
-    }
-}
-
-fn alias_name(alias: &str, crate_name: &str, canonical: &str) -> String {
-    if let Some(rest) = canonical.strip_prefix(&format!("{}:", crate_name)) {
-        format!("{alias}.{rest}")
-    } else {
-        format!("{alias}.{canonical}")
-    }
-}
-
-struct Compiler<'ctx, 'types> {
+pub(super) struct Compiler<'ctx, 'types> {
     context: &'ctx LlvmContext,
-    module: Module<'ctx>,
+    pub(super) module: Module<'ctx>,
     builder: Builder<'ctx>,
-    cached_ir: Option<String>,
+    pub(super) cached_ir: Option<String>,
     symbol_registry: &'static SymbolRegistry,
     // Cache for frequently used types and functions
     string_ptr_type: inkwell::types::PointerType<'ctx>,
-    declared_functions: std::collections::HashMap<String, FunctionValue<'ctx>>,
-    lambda_counter: std::sync::atomic::AtomicUsize,
+    declared_functions: HashMap<String, FunctionValue<'ctx>>,
+    lambda_counter: AtomicUsize,
     function_defaults: HashMap<String, Vec<Option<Expr>>>,
     expr_types: &'types HashMap<usize, TypeInfo>,
 }
 
 impl<'ctx, 'types> Compiler<'ctx, 'types> {
-    fn new(
+    pub(super) fn new(
         context: &'ctx LlvmContext,
         module: Module<'ctx>,
         builder: Builder<'ctx>,
@@ -842,14 +156,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             cached_ir: None,
             symbol_registry,
             string_ptr_type,
-            declared_functions: std::collections::HashMap::new(),
-            lambda_counter: std::sync::atomic::AtomicUsize::new(0),
+            declared_functions: HashMap::new(),
+            lambda_counter: AtomicUsize::new(0),
             function_defaults: HashMap::new(),
             expr_types,
         }
     }
 
-    fn lower_program(&mut self, program: &Program, require_main: bool) -> Result<()> {
+    pub(super) fn lower_program(&mut self, program: &Program, require_main: bool) -> Result<()> {
         // Extract functions from statements
         let functions: Vec<&Function> = program
             .statements
@@ -1092,6 +406,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             }
             Statement::Let {
                 name,
+                ty: _,
                 expr,
                 public: _,
                 ..
@@ -1923,8 +1238,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 // Compile lambda to a separate function
                 let lambda_name = format!(
                     "lambda_{}",
-                    self.lambda_counter
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    self.lambda_counter.fetch_add(1, Ordering::SeqCst)
                 );
 
                 // For task callbacks, lambdas take no parameters and return void
@@ -5003,7 +4317,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         }
     }
 
-    fn run_default_passes(
+    pub(super) fn run_default_passes(
         &self,
         level: CodegenOptLevel,
         enable_pgo: bool,

@@ -742,10 +742,17 @@ fn build_symbol_table_from_statements(
     for stmt in statements {
         match stmt {
             Statement::Let {
-                name, span, expr, ..
+                name,
+                ty,
+                span,
+                expr,
+                ..
             } if span.is_some() => {
-                let ty = infer_type_from_expr(expr);
-                table.add_variable(name.clone(), span.unwrap(), ty);
+                let ty_str = ty
+                    .as_ref()
+                    .map(format_type)
+                    .or_else(|| infer_type_from_expr(expr));
+                table.add_variable(name.clone(), span.unwrap(), ty_str);
             }
 
             Statement::Let {

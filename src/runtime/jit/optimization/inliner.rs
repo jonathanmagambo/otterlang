@@ -155,10 +155,12 @@ impl Inliner {
         match stmt {
             Statement::Let {
                 name,
+                ty,
                 expr,
                 public,
                 span,
             } => {
+                let annotation = ty.clone();
                 let expr_clone = expr.clone();
                 if let Some(mut snippet) = self.try_inline_expr(
                     expr_clone,
@@ -171,11 +173,10 @@ impl Inliner {
                     current_name,
                 ) {
                     self.emit_snippet(&mut snippet, ctx, stack, stats, depth, out);
-                    let value = snippet
-                        .result_expr
-                        .unwrap_or(Expr::Literal(Literal::Unit));
+                    let value = snippet.result_expr.unwrap_or(Expr::Literal(Literal::Unit));
                     out.push(Statement::Let {
                         name,
+                        ty: annotation.clone(),
                         expr: value,
                         public,
                         span,
@@ -193,6 +194,7 @@ impl Inliner {
                     );
                     out.push(Statement::Let {
                         name,
+                        ty: annotation,
                         expr,
                         public,
                         span,
@@ -212,9 +214,7 @@ impl Inliner {
                     current_name,
                 ) {
                     self.emit_snippet(&mut snippet, ctx, stack, stats, depth, out);
-                    let value = snippet
-                        .result_expr
-                        .unwrap_or(Expr::Literal(Literal::Unit));
+                    let value = snippet.result_expr.unwrap_or(Expr::Literal(Literal::Unit));
                     out.push(Statement::Assignment {
                         name,
                         expr: value,
@@ -800,6 +800,7 @@ impl InlineBuilder {
                 .register_param(&param.name, format!("__inl{}_arg{}", inline_id, idx));
             statements.push(Statement::Let {
                 name: param_name,
+                ty: param.ty.clone(),
                 expr: arg,
                 public: false,
                 span: param.span,
@@ -841,11 +842,13 @@ impl InlineBuilder {
         match stmt {
             Statement::Let {
                 name,
+                ty,
                 expr,
                 public,
                 span,
             } => Statement::Let {
                 name: self.names.rename_local(name),
+                ty: ty.clone(),
                 expr: self.rewrite_expr(expr),
                 public: *public,
                 span: *span,
