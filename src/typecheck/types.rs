@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ast::nodes::{EnumVariant, Type};
+use ast::nodes::{EnumVariant, Node, Type};
 use common::Span;
 
 use language::LanguageFeatureFlags;
@@ -413,6 +413,12 @@ impl From<&Type> for TypeInfo {
     }
 }
 
+impl From<&Node<Type>> for TypeInfo {
+    fn from(node: &Node<Type>) -> Self {
+        TypeInfo::from(node.as_ref())
+    }
+}
+
 impl From<&str> for TypeInfo {
     fn from(name: &str) -> Self {
         match name {
@@ -670,7 +676,7 @@ impl TypeContext {
         }
     }
 
-    pub fn type_from_annotation(&self, ty: &Type) -> TypeInfo {
+    pub fn type_from_annotation(&self, ty: &Node<Type>) -> TypeInfo {
         let mut info = TypeInfo::from(ty);
         if let TypeInfo::Generic { base, args } = &info
             && args.is_empty()

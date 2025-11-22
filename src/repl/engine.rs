@@ -4,7 +4,8 @@ use crate::runtime::ffi;
 use crate::runtime::jit::executor::JitExecutor;
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::TypeChecker;
-use ast::nodes::{Expr, Program, Statement};
+use ast::nodes::{Block, Expr, Function, Node, Program, Statement};
+use common::Span;
 use lexer::tokenize;
 use parser::parse;
 
@@ -78,15 +79,28 @@ impl ReplEngine {
             && !tokens.is_empty()
             && let Ok(expr) = self.parse_expression(input)
         {
-            statements.push(Statement::Function(ast::nodes::Function {
-                name: "__repl_expr".to_string(),
-                params: Vec::new(),
-                ret_ty: None,
-                body: ast::nodes::Block {
-                    statements: vec![Statement::Expr(expr)],
-                },
-                public: false,
-            }));
+            let span = Span::new(0, input.len());
+            statements.push(Node::new(
+                Statement::Function(Node::new(
+                    Function {
+                        name: "__repl_expr".to_string(),
+                        params: Vec::new(),
+                        ret_ty: None,
+                        body: Node::new(
+                            Block {
+                                statements: vec![Node::new(
+                                    Statement::Expr(Node::new(expr, span)),
+                                    span,
+                                )],
+                            },
+                            span,
+                        ),
+                        public: false,
+                    },
+                    span,
+                )),
+                span,
+            ));
         }
 
         let num_statements = statements.len();
@@ -105,8 +119,8 @@ impl ReplEngine {
         }
 
         if self.program.statements.iter().any(|s| {
-            if let Statement::Function(f) = s {
-                f.name == "main" || f.name == "__repl_expr"
+            if let Statement::Function(f) = s.as_ref() {
+                f.as_ref().name == "main" || f.as_ref().name == "__repl_expr"
             } else {
                 false
             }
@@ -114,15 +128,16 @@ impl ReplEngine {
             match JitExecutor::new(self.program.clone(), self.symbol_registry) {
                 Ok(mut executor) => {
                     if self.program.statements.iter().any(|s| {
-                        if let Statement::Function(f) = s {
-                            f.name == "main"
+                        if let Statement::Function(f) = s.as_ref() {
+                            f.as_ref().name == "main"
                         } else {
                             false
                         }
                     }) {
                         executor.execute_main()?;
-                    } else if let Some(Statement::Function(f)) = self.program.statements.last()
-                        && f.name == "__repl_expr"
+                    } else if let Some(stmt) = self.program.statements.last()
+                        && let Statement::Function(f) = stmt.as_ref()
+                        && f.as_ref().name == "__repl_expr"
                     {
                         executor.execute_main()?;
                         self.program.statements.pop();
@@ -149,8 +164,10 @@ impl ReplEngine {
             tokenize(input).map_err(|_| anyhow::anyhow!("failed to tokenize expression"))?;
         let program = parse(&tokens).map_err(|_| anyhow::anyhow!("failed to parse expression"))?;
 
-        if let Some(Statement::Expr(expr)) = program.statements.first() {
-            Ok(expr.clone())
+        if let Some(stmt) = program.statements.first()
+            && let Statement::Expr(expr) = stmt.as_ref()
+        {
+            Ok(expr.as_ref().clone())
         } else {
             bail!("not an expression")
         }

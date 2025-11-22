@@ -10,7 +10,7 @@ impl ConstantPropagator {
         match expr {
             Expr::Call { args, .. } => args
                 .iter()
-                .map(|arg| self.extract_constant_from_expr(arg))
+                .map(|arg| self.extract_constant_from_expr(arg.as_ref()))
                 .collect(),
             _ => Vec::new(),
         }
@@ -18,7 +18,7 @@ impl ConstantPropagator {
 
     fn extract_constant_from_expr(&self, expr: &Expr) -> Option<RuntimeConstant> {
         match expr {
-            Expr::Literal(lit) => self.literal_to_constant(lit),
+            Expr::Literal(lit) => self.literal_to_constant(lit.as_ref()),
             _ => None,
         }
     }
@@ -52,7 +52,7 @@ impl ConstantPropagator {
     /// Fold a constant expression to its value
     pub fn fold(&self, expr: &Expr) -> Option<RuntimeConstant> {
         match expr {
-            Expr::Literal(lit) => self.literal_to_constant(lit),
+            Expr::Literal(lit) => self.literal_to_constant(lit.as_ref()),
             _ => None,
         }
     }

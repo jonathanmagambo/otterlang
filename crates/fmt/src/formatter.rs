@@ -1,4 +1,7 @@
-use ast::nodes::{Block, Expr, Function, Program, Statement};
+use ast::nodes::{
+    BinaryOp, Block, Expr, FStringPart, Function, Literal, Node, Pattern, Program, Statement, Type,
+    UnaryOp,
+};
 
 /// Formats OtterLang code
 pub struct Formatter {
@@ -26,8 +29,8 @@ impl Formatter {
         output
     }
 
-    fn format_statement(&self, stmt: &Statement, indent: usize) -> String {
-        match stmt {
+    fn format_statement(&self, stmt: &Node<Statement>, indent: usize) -> String {
+        match stmt.as_ref() {
             Statement::Let {
                 name,
                 ty,
@@ -160,10 +163,15 @@ impl Formatter {
                     gen_str
                 );
                 for variant in variants {
-                    if variant.fields.is_empty() {
-                        result.push_str(&format!("{}    {}\n", self.indent(indent), variant.name));
+                    if variant.as_ref().fields.is_empty() {
+                        result.push_str(&format!(
+                            "{}    {}\n",
+                            self.indent(indent),
+                            variant.as_ref().name
+                        ));
                     } else {
                         let fields = variant
+                            .as_ref()
                             .fields
                             .iter()
                             .map(|ty| self.format_type(ty))
@@ -172,7 +180,7 @@ impl Formatter {
                         result.push_str(&format!(
                             "{}    {}: ({})\n",
                             self.indent(indent),
-                            variant.name,
+                            variant.as_ref().name,
                             fields
                         ));
                     }
@@ -204,10 +212,10 @@ impl Formatter {
                 let modules: Vec<String> = imports
                     .iter()
                     .map(|import| {
-                        if let Some(alias) = &import.alias {
-                            format!("{} as {}", import.module, alias)
+                        if let Some(alias) = &import.as_ref().alias {
+                            format!("{} as {}", import.as_ref().module, alias)
                         } else {
-                            import.module.clone()
+                            import.as_ref().module.clone()
                         }
                     })
                     .collect();
@@ -240,16 +248,16 @@ impl Formatter {
                 for handler in handlers {
                     output.push_str(&format!("{}except", self.indent(indent)));
 
-                    if let Some(ty) = &handler.exception {
+                    if let Some(ty) = &handler.as_ref().exception {
                         output.push_str(&format!(" {}", self.format_type(ty)));
                     }
 
-                    if let Some(alias) = &handler.alias {
+                    if let Some(alias) = &handler.as_ref().alias {
                         output.push_str(&format!(" as {}", alias));
                     }
 
                     output.push_str(":\n");
-                    output.push_str(&self.format_block(&handler.body, indent + 1));
+                    output.push_str(&self.format_block(&handler.as_ref().body, indent + 1));
                 }
 
                 if let Some(else_block) = else_block {
@@ -274,18 +282,19 @@ impl Formatter {
         }
     }
 
-    fn format_function(&self, f: &Function, indent: usize) -> String {
-        let pub_str = if f.public { "pub " } else { "" };
+    fn format_function(&self, f: &Node<Function>, indent: usize) -> String {
+        let pub_str = if f.as_ref().public { "pub " } else { "" };
         let params_str = f
+            .as_ref()
             .params
             .iter()
             .map(|p| {
-                let base = if let Some(ref ty) = p.ty {
-                    format!("{}: {}", p.name, self.format_type(ty))
+                let base = if let Some(ref ty) = p.as_ref().ty {
+                    format!("{}: {}", p.as_ref().name, self.format_type(ty))
                 } else {
-                    p.name.clone()
+                    p.as_ref().name.as_ref().clone()
                 };
-                if let Some(default) = &p.default {
+                if let Some(default) = &p.as_ref().default {
                     format!("{} = {}", base, self.format_expr(default, indent))
                 } else {
                     base
@@ -293,7 +302,7 @@ impl Formatter {
             })
             .collect::<Vec<_>>()
             .join(", ");
-        let ret_str = if let Some(ref ret_ty) = f.ret_ty {
+        let ret_str = if let Some(ref ret_ty) = f.as_ref().ret_ty {
             format!(" -> {}", self.format_type(ret_ty))
         } else {
             String::new()
@@ -302,16 +311,16 @@ impl Formatter {
             "{}{}def {}({}){}:\n{}",
             self.indent(indent),
             pub_str,
-            f.name,
+            f.as_ref().name,
             params_str,
             ret_str,
-            self.format_block(&f.body, indent + 1)
+            self.format_block(&f.as_ref().body, indent + 1)
         )
     }
 
-    fn format_block(&self, block: &Block, indent: usize) -> String {
+    fn format_block(&self, block: &Node<Block>, indent: usize) -> String {
         let mut result = String::new();
-        for stmt in &block.statements {
+        for stmt in &block.as_ref().statements {
             result.push_str(&self.format_statement(stmt, indent));
         }
         result
@@ -319,10 +328,10 @@ impl Formatter {
 
     fn format_if(
         &self,
-        cond: &Expr,
-        then_block: &Block,
-        elif_blocks: &[(Expr, Block)],
-        else_block: &Option<Block>,
+        cond: &Node<Expr>,
+        then_block: &Node<Block>,
+        elif_blocks: &[(Node<Expr>, Node<Block>)],
+        else_block: &Option<Node<Block>>,
         indent: usize,
     ) -> String {
         let mut result = format!(
@@ -349,10 +358,10 @@ impl Formatter {
         result
     }
 
-    fn format_expr(&self, expr: &Expr, indent: usize) -> String {
-        match expr {
+    fn format_expr(&self, expr: &Node<Expr>, indent: usize) -> String {
+        match expr.as_ref() {
             Expr::Literal(lit) => self.format_literal(lit),
-            Expr::Identifier { name, .. } => name.clone(),
+            Expr::Identifier(name) => name.clone(),
             Expr::Binary { op, left, right } => {
                 format!(
                     "{} {} {}",
@@ -469,8 +478,8 @@ impl Formatter {
                     result.push_str(&format!(
                         "{}    case {} => {}\n",
                         self.indent(indent),
-                        self.format_pattern(&arm.pattern),
-                        self.format_expr(&arm.body, indent)
+                        self.format_pattern(&arm.as_ref().pattern),
+                        self.format_expr(&arm.as_ref().body, indent)
                     ));
                 }
                 result
@@ -492,12 +501,12 @@ impl Formatter {
                 let params_str = params
                     .iter()
                     .map(|p| {
-                        let base = if let Some(ref ty) = p.ty {
-                            format!("{}: {}", p.name, self.format_type(ty))
+                        let base = if let Some(ref ty) = p.as_ref().ty {
+                            format!("{}: {}", p.as_ref().name, self.format_type(ty))
                         } else {
-                            p.name.clone()
+                            p.as_ref().name.as_ref().clone()
                         };
-                        if let Some(default) = &p.default {
+                        if let Some(default) = &p.as_ref().default {
                             format!("{} = {}", base, self.format_expr(default, indent))
                         } else {
                             base
@@ -527,9 +536,9 @@ impl Formatter {
             Expr::FString { parts } => {
                 let parts_str = parts
                     .iter()
-                    .map(|part| match part {
-                        ast::nodes::FStringPart::Text(s) => s.clone(),
-                        ast::nodes::FStringPart::Expr(e) => {
+                    .map(|part| match part.as_ref() {
+                        FStringPart::Text(s) => s.clone(),
+                        FStringPart::Expr(e) => {
                             format!("{{{}}}", self.format_expr(e, indent))
                         }
                     })
@@ -540,12 +549,12 @@ impl Formatter {
         }
     }
 
-    fn format_pattern(&self, pattern: &ast::nodes::Pattern) -> String {
-        match pattern {
-            ast::nodes::Pattern::Wildcard => "_".to_string(),
-            ast::nodes::Pattern::Literal(lit) => self.format_literal(lit),
-            ast::nodes::Pattern::Identifier(name) => name.clone(),
-            ast::nodes::Pattern::EnumVariant {
+    fn format_pattern(&self, pattern: &Node<Pattern>) -> String {
+        match pattern.as_ref() {
+            Pattern::Wildcard => "_".to_string(),
+            Pattern::Literal(lit) => self.format_literal(lit),
+            Pattern::Identifier(name) => name.clone(),
+            Pattern::EnumVariant {
                 enum_name,
                 variant,
                 fields,
@@ -561,7 +570,7 @@ impl Formatter {
                     format!("{}.{}({})", enum_name, variant, inner)
                 }
             }
-            ast::nodes::Pattern::Struct { name, fields } => {
+            Pattern::Struct { name, fields } => {
                 let fields_str = fields
                     .iter()
                     .map(|(f, p_opt)| {
@@ -575,7 +584,7 @@ impl Formatter {
                     .join(", ");
                 format!("{}({})", name, fields_str)
             }
-            ast::nodes::Pattern::Array { patterns, rest } => {
+            Pattern::Array { patterns, rest } => {
                 let patterns_str = patterns
                     .iter()
                     .map(|p| self.format_pattern(p))
@@ -591,26 +600,26 @@ impl Formatter {
         }
     }
 
-    fn format_literal(&self, lit: &ast::nodes::Literal) -> String {
-        match lit {
-            ast::nodes::Literal::Number(n) => {
+    fn format_literal(&self, lit: &Node<Literal>) -> String {
+        match lit.as_ref() {
+            Literal::Number(n) => {
                 if !n.is_float_literal && n.value.fract() == 0.0 {
                     format!("{}", n.value as i64)
                 } else {
                     n.value.to_string()
                 }
             }
-            ast::nodes::Literal::Bool(b) => b.to_string(),
-            ast::nodes::Literal::String(s) => format!("\"{}\"", s),
-            ast::nodes::Literal::None => "None".to_string(),
-            ast::nodes::Literal::Unit => "()".to_string(),
+            Literal::Bool(b) => b.to_string(),
+            Literal::String(s) => format!("\"{}\"", s),
+            Literal::None => "None".to_string(),
+            Literal::Unit => "()".to_string(),
         }
     }
 
-    fn format_type(&self, ty: &ast::nodes::Type) -> String {
-        match ty {
-            ast::nodes::Type::Simple(name) => name.clone(),
-            ast::nodes::Type::Generic { base, args } => {
+    fn format_type(&self, ty: &Node<Type>) -> String {
+        match ty.as_ref() {
+            Type::Simple(name) => name.clone(),
+            Type::Generic { base, args } => {
                 if args.is_empty() {
                     base.clone()
                 } else {
@@ -625,30 +634,30 @@ impl Formatter {
         }
     }
 
-    fn format_binary_op(&self, op: &ast::nodes::BinaryOp) -> &str {
+    fn format_binary_op(&self, op: &BinaryOp) -> &str {
         match op {
-            ast::nodes::BinaryOp::Add => "+",
-            ast::nodes::BinaryOp::Mul => "*",
-            ast::nodes::BinaryOp::Sub => "-",
-            ast::nodes::BinaryOp::Div => "/",
-            ast::nodes::BinaryOp::Mod => "%",
-            ast::nodes::BinaryOp::Eq => "==",
-            ast::nodes::BinaryOp::Ne => "!=",
-            ast::nodes::BinaryOp::Lt => "<",
-            ast::nodes::BinaryOp::LtEq => "<=",
-            ast::nodes::BinaryOp::Gt => ">",
-            ast::nodes::BinaryOp::GtEq => ">=",
-            ast::nodes::BinaryOp::Is => "is",
-            ast::nodes::BinaryOp::IsNot => "is not",
-            ast::nodes::BinaryOp::And => "and",
-            ast::nodes::BinaryOp::Or => "or",
+            BinaryOp::Add => "+",
+            BinaryOp::Mul => "*",
+            BinaryOp::Sub => "-",
+            BinaryOp::Div => "/",
+            BinaryOp::Mod => "%",
+            BinaryOp::Eq => "==",
+            BinaryOp::Ne => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::LtEq => "<=",
+            BinaryOp::Gt => ">",
+            BinaryOp::GtEq => ">=",
+            BinaryOp::Is => "is",
+            BinaryOp::IsNot => "is not",
+            BinaryOp::And => "and",
+            BinaryOp::Or => "or",
         }
     }
 
-    fn format_unary_op(&self, op: &ast::nodes::UnaryOp) -> &str {
+    fn format_unary_op(&self, op: &UnaryOp) -> &str {
         match op {
-            ast::nodes::UnaryOp::Not => "not ",
-            ast::nodes::UnaryOp::Neg => "-",
+            UnaryOp::Not => "not ",
+            UnaryOp::Neg => "-",
         }
     }
 

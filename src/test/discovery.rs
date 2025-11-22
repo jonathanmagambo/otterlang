@@ -63,14 +63,14 @@ impl TestDiscovery {
         let mut tests = Vec::new();
 
         for (idx, stmt) in program.statements.iter().enumerate() {
-            if let Statement::Function(func) = stmt
-                && Self::is_test_function(func)
+            if let Statement::Function(func) = stmt.as_ref()
+                && Self::is_test_function(func.as_ref())
             {
                 let line_number = Self::estimate_line_number(&source, idx);
                 tests.push(TestCase {
                     file_path: file_path.to_path_buf(),
-                    function_name: func.name.clone(),
-                    function: func.clone(),
+                    function_name: func.as_ref().name.clone(),
+                    function: func.as_ref().clone(),
                     line_number,
                 });
             }

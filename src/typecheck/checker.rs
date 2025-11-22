@@ -3,7 +3,10 @@ use std::collections::HashMap;
 
 use crate::runtime::symbol_registry::{FfiType, SymbolRegistry};
 use crate::typecheck::types::{EnumDefinition, TypeContext, TypeError, TypeInfo};
-use ast::nodes::{Block, Expr, Function, Literal, Program, Statement};
+use ast::nodes::{
+    BinaryOp, Block, Expr, FStringPart, Function, Literal, Node, Pattern, Program, Statement, Type,
+    UnaryOp,
+};
 use language::LanguageFeatureFlags;
 
 /// Type checker that validates and infers types in OtterLang programs
@@ -164,15 +167,17 @@ impl TypeChecker {
 
         // Second pass: collect function signatures
         for statement in &program.statements {
-            if let Statement::Function(function) = statement {
+            if let Statement::Function(function) = statement.as_ref() {
                 let sig = self.infer_function_signature(function);
-                self.context.functions.insert(function.name.clone(), sig);
+                self.context
+                    .functions
+                    .insert(function.as_ref().name.clone(), sig);
             }
         }
 
         // Third pass: type check function bodies and top-level statements
         for statement in &program.statements {
-            match statement {
+            match statement.as_ref() {
                 Statement::Function(function) => {
                     self.check_function(function)?;
                 }
@@ -203,13 +208,14 @@ impl TypeChecker {
     }
 
     /// Infer function signature from declaration
-    fn infer_function_signature(&mut self, function: &Function) -> TypeInfo {
+    fn infer_function_signature(&mut self, function: &Node<Function>) -> TypeInfo {
         let mut param_types = Vec::new();
         let mut param_defaults = Vec::new();
         let mut seen_default = false;
 
-        for param in &function.params {
+        for param in &function.as_ref().params {
             let explicit_type = param
+                .as_ref()
                 .ty
                 .as_ref()
                 .map(|ty| self.context.type_from_annotation(ty));
@@ -233,7 +239,7 @@ impl TypeChecker {
 
             param_types.push(resolved_type.clone());
 
-            if let Some(default_expr) = &param.default {
+            if let Some(default_expr) = &param.as_ref().default {
                 seen_default = true;
                 param_defaults.push(true);
                 if let Ok(default_type) = self.infer_expr_type(default_expr)
@@ -243,7 +249,7 @@ impl TypeChecker {
                     self.errors.push(
                         TypeError::new(format!(
                             "default value for parameter `{}` has type {}, expected {}",
-                            param.name,
+                            param.as_ref().name,
                             default_type.display_name(),
                             expected.display_name()
                         ))
@@ -258,7 +264,7 @@ impl TypeChecker {
                     self.errors.push(
                         TypeError::new(format!(
                             "parameter `{}` without default cannot follow parameters with defaults",
-                            param.name
+                            param.as_ref().name
                         ))
                         .with_hint("Move parameters without defaults before parameters that specify defaults".to_string()),
                     );
@@ -267,7 +273,7 @@ impl TypeChecker {
             }
         }
 
-        let return_type = if let Some(ty) = &function.ret_ty {
+        let return_type = if let Some(ty) = &function.as_ref().ret_ty {
             self.context.type_from_annotation(ty)
         } else {
             TypeInfo::Unknown
@@ -284,9 +290,9 @@ impl TypeChecker {
         self.register_type_definitions(&program.statements);
     }
 
-    fn register_type_definitions(&mut self, statements: &[Statement]) {
+    fn register_type_definitions(&mut self, statements: &[Node<Statement>]) {
         for statement in statements {
-            match statement {
+            match statement.as_ref() {
                 Statement::Struct {
                     name,
                     fields,
@@ -307,7 +313,7 @@ impl TypeChecker {
                     self.context.define_struct(name.clone(), field_types);
 
                     for method in methods {
-                        let method_name = format!("{}.{}", name, method.name);
+                        let method_name = format!("{}.{}", name, method.as_ref().name);
                         let sig = self.infer_function_signature(method);
                         self.context.insert_function(method_name.clone(), sig);
                     }
@@ -334,7 +340,7 @@ impl TypeChecker {
                     let definition = EnumDefinition {
                         name: name.clone(),
                         generics: generics.clone(),
-                        variants: variants.clone(),
+                        variants: variants.iter().map(|v| v.as_ref()).cloned().collect(),
                     };
                     self.context.define_enum(definition);
                 }
@@ -344,9 +350,9 @@ impl TypeChecker {
     }
 
     /// Type check a function
-    fn check_function(&mut self, function: &Function) -> Result<()> {
+    fn check_function(&mut self, function: &Node<Function>) -> Result<()> {
         // Determine function return type
-        let return_type = if let Some(ret_ty) = &function.ret_ty {
+        let return_type = if let Some(ret_ty) = &function.as_ref().ret_ty {
             self.context.type_from_annotation(ret_ty)
         } else {
             TypeInfo::Unit
@@ -355,13 +361,13 @@ impl TypeChecker {
         let mut fn_context = TypeContext::with_features(self.features.clone());
 
         // Add function parameters to context
-        for param in &function.params {
-            let param_type = if let Some(ty) = &param.ty {
+        for param in &function.as_ref().params {
+            let param_type = if let Some(ty) = &param.as_ref().ty {
                 self.context.type_from_annotation(ty)
             } else {
                 TypeInfo::Unknown
             };
-            fn_context.insert_variable(param.name.clone(), param_type);
+            fn_context.insert_variable(param.as_ref().name.as_ref().clone(), param_type);
         }
 
         // Copy function signatures to inner context
@@ -376,7 +382,7 @@ impl TypeChecker {
         // Type check function body with return type tracking
         let old_context = std::mem::replace(&mut self.context, fn_context);
         let old_return_type = self.current_function_return_type.replace(return_type);
-        let result = self.check_block(&function.body);
+        let result = self.check_block(&function.as_ref().body);
         self.context = old_context;
         self.current_function_return_type = old_return_type;
 
@@ -386,18 +392,18 @@ impl TypeChecker {
     /// Check function with generic type parameters
     /// This handles functions that have generic type parameters in their signature
     #[allow(dead_code)]
-    fn check_function_with_generics(&mut self, function: &Function) -> Result<()> {
+    fn check_function_with_generics(&mut self, function: &Node<Function>) -> Result<()> {
         // Extract generic type parameters from function signature
         let mut generic_params = Vec::new();
 
         // Check parameter types for generic parameters
-        for param in &function.params {
-            if let Some(ty) = &param.ty {
+        for param in &function.as_ref().params {
+            if let Some(ty) = &param.as_ref().ty {
                 self.extract_generic_params(ty, &mut generic_params);
             }
         }
 
-        if let Some(ret_ty) = &function.ret_ty {
+        if let Some(ret_ty) = &function.as_ref().ret_ty {
             self.extract_generic_params(ret_ty, &mut generic_params);
         }
 
@@ -419,9 +425,9 @@ impl TypeChecker {
 
     /// Extract generic type parameter names from a type
     #[allow(dead_code)]
-    fn extract_generic_params(&self, ty: &ast::nodes::Type, params: &mut Vec<String>) {
-        match ty {
-            ast::nodes::Type::Simple(name) => {
+    fn extract_generic_params(&self, ty: &Node<Type>, params: &mut Vec<String>) {
+        match ty.as_ref() {
+            Type::Simple(name) => {
                 // Check if this looks like a generic parameter (single uppercase letter or common generic names)
                 // In OtterLang, generic parameters are typically single uppercase letters (T, U, etc.)
                 if name.len() == 1
@@ -431,7 +437,7 @@ impl TypeChecker {
                     params.push(name.clone());
                 }
             }
-            ast::nodes::Type::Generic { base, args } => {
+            Type::Generic { base, args } => {
                 // Check if base is a generic parameter
                 if base.len() == 1
                     && base.chars().next().unwrap().is_uppercase()
@@ -449,13 +455,11 @@ impl TypeChecker {
 
     fn try_eval_enum_constructor(
         &mut self,
-        func: &Expr,
-        args: &[Expr],
+        func: &Node<Expr>,
+        args: &[Node<Expr>],
     ) -> Result<Option<TypeInfo>> {
-        if let Expr::Member { object, field } = func
-            && let Expr::Identifier {
-                name: enum_name, ..
-            } = object.as_ref()
+        if let Expr::Member { object, field } = func.as_ref()
+            && let Expr::Identifier(enum_name) = object.as_ref().as_ref()
             && let Some(definition) = self.context.get_enum(enum_name).cloned()
         {
             let variant = match definition
@@ -491,7 +495,7 @@ impl TypeChecker {
 
             for (field_ty, actual_ty) in variant.fields.iter().zip(arg_types.iter()) {
                 let expected_type = self.context.type_from_annotation(field_ty);
-                if !self.type_contains_enum_generic(field_ty, &definition.generics)
+                if !self.type_contains_enum_generic(field_ty.as_ref(), &definition.generics)
                     && !actual_ty.is_compatible_with(&expected_type)
                 {
                     self.errors.push(TypeError::new(format!(
@@ -524,34 +528,34 @@ impl TypeChecker {
         Ok(None)
     }
 
-    fn type_contains_enum_generic(&self, ty: &ast::nodes::Type, generics: &[String]) -> bool {
+    fn type_contains_enum_generic(&self, ty: &Type, generics: &[String]) -> bool {
         match ty {
-            ast::nodes::Type::Simple(name) => generics.contains(name),
-            ast::nodes::Type::Generic { base, args } => {
+            Type::Simple(name) => generics.contains(name),
+            Type::Generic { base, args } => {
                 generics.contains(base)
                     || args
                         .iter()
-                        .any(|arg| self.type_contains_enum_generic(arg, generics))
+                        .any(|arg| self.type_contains_enum_generic(arg.as_ref(), generics))
             }
         }
     }
 
     fn infer_enum_generics_from_type(
         &mut self,
-        expected: &ast::nodes::Type,
+        expected: &Node<Type>,
         actual: &TypeInfo,
         definition: &EnumDefinition,
         inferred: &mut HashMap<String, TypeInfo>,
     ) {
-        match expected {
-            ast::nodes::Type::Simple(name) => {
+        match expected.as_ref() {
+            Type::Simple(name) => {
                 if definition.generics.contains(name) {
                     inferred
                         .entry(name.clone())
                         .or_insert_with(|| actual.clone());
                 }
             }
-            ast::nodes::Type::Generic { base, args } => {
+            Type::Generic { base, args } => {
                 if definition.generics.contains(base) && args.is_empty() {
                     inferred
                         .entry(base.clone())
@@ -608,13 +612,13 @@ impl TypeChecker {
     }
 
     /// Bind variables from a pattern into the type checking context
-    fn bind_pattern_variables(&mut self, pattern: &ast::nodes::Pattern, ty: &TypeInfo) {
-        match pattern {
-            ast::nodes::Pattern::Identifier(name) => {
+    fn bind_pattern_variables(&mut self, pattern: &Node<Pattern>, ty: &TypeInfo) {
+        match pattern.as_ref() {
+            Pattern::Identifier(name) => {
                 // Simple identifier pattern binds the whole value
                 self.context.insert_variable(name.clone(), ty.clone());
             }
-            ast::nodes::Pattern::EnumVariant {
+            Pattern::EnumVariant {
                 enum_name,
                 variant,
                 fields,
@@ -678,7 +682,7 @@ impl TypeChecker {
                     }
                 }
             }
-            ast::nodes::Pattern::Struct { name, fields } => {
+            Pattern::Struct { name, fields } => {
                 // Clone struct fields to avoid borrow conflicts
                 let struct_fields = self.context.get_struct(name).cloned();
                 if let Some(struct_fields) = struct_fields {
@@ -695,7 +699,7 @@ impl TypeChecker {
                     }
                 }
             }
-            ast::nodes::Pattern::Array { patterns, rest } => {
+            Pattern::Array { patterns, rest } => {
                 if let TypeInfo::List(elem_type) = ty {
                     for pattern in patterns {
                         self.bind_pattern_variables(pattern, elem_type);
@@ -706,25 +710,25 @@ impl TypeChecker {
                     }
                 }
             }
-            ast::nodes::Pattern::Wildcard | ast::nodes::Pattern::Literal(_) => {
+            Pattern::Wildcard | Pattern::Literal(_) => {
                 // No variables to bind
             }
         }
     }
 
-    fn validate_pattern_against_type(&mut self, pattern: &ast::nodes::Pattern, ty: &TypeInfo) {
-        match pattern {
-            ast::nodes::Pattern::Wildcard => {
+    fn validate_pattern_against_type(&mut self, pattern: &Node<Pattern>, ty: &TypeInfo) {
+        match pattern.as_ref() {
+            Pattern::Wildcard => {
                 // Wildcard matches any type
             }
-            ast::nodes::Pattern::Identifier(_) => {
+            Pattern::Identifier(_) => {
                 // Identifier binds any type
             }
-            ast::nodes::Pattern::Literal(lit) => {
+            Pattern::Literal(lit) => {
                 // Check literal type matches expected type
-                let lit_type = match lit {
-                    ast::nodes::Literal::String(_) => TypeInfo::Str,
-                    ast::nodes::Literal::Number(n) => {
+                let lit_type = match lit.as_ref() {
+                    Literal::String(_) => TypeInfo::Str,
+                    Literal::Number(n) => {
                         if n.value.fract() == 0.0
                             && n.value >= i32::MIN as f64
                             && n.value <= i32::MAX as f64
@@ -734,8 +738,8 @@ impl TypeChecker {
                             TypeInfo::F64
                         }
                     }
-                    ast::nodes::Literal::Bool(_) => TypeInfo::Bool,
-                    ast::nodes::Literal::None | ast::nodes::Literal::Unit => TypeInfo::Unit,
+                    Literal::Bool(_) => TypeInfo::Bool,
+                    Literal::None | Literal::Unit => TypeInfo::Unit,
                 };
 
                 if !lit_type.is_compatible_with(ty) {
@@ -746,7 +750,7 @@ impl TypeChecker {
                     )));
                 }
             }
-            ast::nodes::Pattern::EnumVariant {
+            Pattern::EnumVariant {
                 enum_name,
                 variant,
                 fields,
@@ -810,7 +814,7 @@ impl TypeChecker {
                     }
                 }
             }
-            ast::nodes::Pattern::Struct { name, fields } => {
+            Pattern::Struct { name, fields } => {
                 // Check that value type is compatible with struct pattern
                 match ty {
                     TypeInfo::Struct {
@@ -849,7 +853,7 @@ impl TypeChecker {
                     }
                 }
             }
-            ast::nodes::Pattern::Array { patterns, rest } => {
+            Pattern::Array { patterns, rest } => {
                 // Check that value type is a list/array
                 match ty {
                     TypeInfo::List(elem_type) => {
@@ -881,23 +885,18 @@ impl TypeChecker {
     }
 
     /// Type check a block
-    fn check_block(&mut self, block: &Block) -> Result<()> {
-        for statement in &block.statements {
+    fn check_block(&mut self, block: &Node<Block>) -> Result<()> {
+        for statement in &block.as_ref().statements {
             self.check_statement(statement)?;
         }
         Ok(())
     }
 
     /// Type check a statement
-    fn check_statement(&mut self, statement: &Statement) -> Result<()> {
-        match statement {
-            Statement::Let {
-                name,
-                ty,
-                expr,
-                span,
-                ..
-            } => {
+    fn check_statement(&mut self, statement: &Node<Statement>) -> Result<()> {
+        let span = statement.span();
+        match statement.as_ref() {
+            Statement::Let { name, ty, expr, .. } => {
                 let expr_type = self.infer_expr_type(expr)?;
                 if let Some(annotation) = ty {
                     let annotated_type = self.context.type_from_annotation(annotation);
@@ -918,18 +917,20 @@ impl TypeChecker {
                                 "Update the annotation or change the initializer to match the declared type"
                                     .to_string(),
                             )
-                            .with_optional_span(*span),
+                            .with_span(*span),
                         );
                     }
-                    self.context.insert_variable(name.clone(), annotated_type);
+                    self.context
+                        .insert_variable(name.as_ref().clone(), annotated_type);
                 } else {
-                    self.context.insert_variable(name.clone(), expr_type);
+                    self.context
+                        .insert_variable(name.as_ref().clone(), expr_type);
                 }
             }
-            Statement::Assignment { name, expr, span } => {
+            Statement::Assignment { name, expr } => {
                 let var_type = self
                     .context
-                    .get_variable(name)
+                    .get_variable(name.as_ref())
                     .ok_or_else(|| {
                         TypeError::new(format!("undefined variable: {}", name))
                             .with_hint(format!("did you mean to declare it with `let {}`?", name))
@@ -937,7 +938,7 @@ impl TypeChecker {
                                 "Variables must be declared with `let` before they can be assigned"
                                     .to_string(),
                             )
-                            .with_optional_span(*span)
+                            .with_span(*span)
                     })?
                     .clone();
 
@@ -951,7 +952,7 @@ impl TypeChecker {
                     ))
                     .with_hint(format!("The variable `{}` is declared as `{}`, but you're trying to assign a value of type `{}`", name, var_type.display_name(), expr_type.display_name()))
                     .with_help("Make sure the types match or are compatible (e.g., i32 can be promoted to i64 or f64)".to_string())
-                    .with_optional_span(*span));
+                    .with_span(*span));
                 }
             }
             Statement::If {
@@ -996,15 +997,16 @@ impl TypeChecker {
                     }
                 };
 
-                let previous = self.context.remove_variable(var);
-                self.context.insert_variable(var.clone(), element_type);
+                let previous = self.context.remove_variable(var.as_ref());
+                self.context
+                    .insert_variable(var.as_ref().clone(), element_type);
                 self.check_block(body)?;
                 match previous {
                     Some(prev) => {
-                        self.context.insert_variable(var.clone(), prev);
+                        self.context.insert_variable(var.as_ref().clone(), prev);
                     }
                     None => {
-                        self.context.remove_variable(var);
+                        self.context.remove_variable(var.as_ref());
                     }
                 }
             }
@@ -1094,7 +1096,7 @@ impl TypeChecker {
 
                 // Type check each handler
                 for handler in handlers {
-                    if let Some(exception_type) = &handler.exception {
+                    if let Some(exception_type) = &handler.as_ref().exception {
                         // Convert AST type to TypeInfo
                         let handler_ty = self.context.type_from_annotation(exception_type);
                         // Validate that handler type is compatible with Error
@@ -1108,13 +1110,13 @@ impl TypeChecker {
 
                     // Create a new scope for the handler body
                     let original_vars = self.context.variables.clone();
-                    if let Some(alias) = &handler.alias {
+                    if let Some(alias) = &handler.as_ref().alias {
                         // Bind the exception variable in the handler scope
                         self.context.insert_variable(alias.clone(), TypeInfo::Error);
                     }
 
                     // Type check the handler body in the scoped context
-                    self.check_block(&handler.body)?;
+                    self.check_block(&handler.as_ref().body)?;
 
                     // Restore the original variable context (handler variables don't leak)
                     self.context.variables = original_vars;
@@ -1151,10 +1153,11 @@ impl TypeChecker {
     }
 
     /// Infer the type of an expression
-    pub fn infer_expr_type(&mut self, expr: &Expr) -> Result<TypeInfo> {
+    pub fn infer_expr_type(&mut self, expr: &Node<Expr>) -> Result<TypeInfo> {
+        let span = expr.span();
         let ty = (|| -> Result<TypeInfo> {
-            match expr {
-                Expr::Literal(lit) => Ok(match lit {
+            match expr.as_ref() {
+                Expr::Literal(lit) => Ok(match lit.as_ref() {
                     Literal::Number(num) => {
                         if num.is_float_literal {
                             TypeInfo::F64
@@ -1167,7 +1170,7 @@ impl TypeChecker {
                     Literal::None => TypeInfo::Unit,
                     Literal::Unit => TypeInfo::Unit,
                 }),
-                Expr::Identifier { name, span } => {
+                Expr::Identifier(name) => {
                     if let Some(var_type) = self.context.get_variable(name) {
                         Ok(var_type.clone())
                     } else if let Some(registry) = self.registry {
@@ -1184,14 +1187,14 @@ impl TypeChecker {
                                     name
                                 ))
                                 .with_help("Variables must be declared before use".to_string())
-                                .with_optional_span(*span)
+                                .with_span(*span)
                                 .into())
                         }
                     } else {
                         Err(TypeError::new(format!("undefined variable: {}", name))
                             .with_hint(format!("did you mean to declare it with `let {}`?", name))
                             .with_help("Variables must be declared before use".to_string())
-                            .with_optional_span(*span)
+                            .with_span(*span)
                             .into())
                     }
                 }
@@ -1200,25 +1203,20 @@ impl TypeChecker {
                     let right_type = self.infer_expr_type(right)?;
 
                     match op {
-                        ast::nodes::BinaryOp::Add
-                        | ast::nodes::BinaryOp::Sub
-                        | ast::nodes::BinaryOp::Mul
-                        | ast::nodes::BinaryOp::Div => {
+                        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                             // Numeric operations
                             match (&left_type, &right_type) {
                                 // String concatenation (must come before numeric patterns)
-                                (TypeInfo::Str, TypeInfo::Str)
-                                    if matches!(op, ast::nodes::BinaryOp::Add) =>
-                                {
+                                (TypeInfo::Str, TypeInfo::Str) if matches!(op, BinaryOp::Add) => {
                                     Ok(TypeInfo::Str)
                                 }
                                 (TypeInfo::Str, TypeInfo::I64 | TypeInfo::I32)
-                                    if matches!(op, ast::nodes::BinaryOp::Add) =>
+                                    if matches!(op, BinaryOp::Add) =>
                                 {
                                     Ok(TypeInfo::Str)
                                 }
                                 (TypeInfo::I64 | TypeInfo::I32, TypeInfo::Str)
-                                    if matches!(op, ast::nodes::BinaryOp::Add) =>
+                                    if matches!(op, BinaryOp::Add) =>
                                 {
                                     Ok(TypeInfo::Str)
                                 }
@@ -1236,12 +1234,12 @@ impl TypeChecker {
                                 }
                             }
                         }
-                        ast::nodes::BinaryOp::Eq
-                        | ast::nodes::BinaryOp::Ne
-                        | ast::nodes::BinaryOp::Lt
-                        | ast::nodes::BinaryOp::LtEq
-                        | ast::nodes::BinaryOp::Gt
-                        | ast::nodes::BinaryOp::GtEq => {
+                        BinaryOp::Eq
+                        | BinaryOp::Ne
+                        | BinaryOp::Lt
+                        | BinaryOp::LtEq
+                        | BinaryOp::Gt
+                        | BinaryOp::GtEq => {
                             // Comparison operations return bool
                             if left_type.is_compatible_with(&right_type) {
                                 Ok(TypeInfo::Bool)
@@ -1254,7 +1252,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        ast::nodes::BinaryOp::Is | ast::nodes::BinaryOp::IsNot => {
+                        BinaryOp::Is | BinaryOp::IsNot => {
                             // Identity comparison allows matching types or comparisons with None
                             let allow = left_type.is_compatible_with(&right_type)
                                 || right_type.is_compatible_with(&left_type)
@@ -1274,7 +1272,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        ast::nodes::BinaryOp::And | ast::nodes::BinaryOp::Or => {
+                        BinaryOp::And | BinaryOp::Or => {
                             // Logical operations require bool operands
                             if left_type.is_compatible_with(&TypeInfo::Bool)
                                 && right_type.is_compatible_with(&TypeInfo::Bool)
@@ -1289,7 +1287,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        ast::nodes::BinaryOp::Mod => {
+                        BinaryOp::Mod => {
                             // Modulo requires integer operands
                             match (&left_type, &right_type) {
                                 (TypeInfo::I32, TypeInfo::I32) => Ok(TypeInfo::I32),
@@ -1309,7 +1307,7 @@ impl TypeChecker {
                 Expr::Unary { op, expr } => {
                     let expr_type = self.infer_expr_type(expr)?;
                     match op {
-                        ast::nodes::UnaryOp::Not => {
+                        UnaryOp::Not => {
                             if expr_type.is_compatible_with(&TypeInfo::Bool) {
                                 Ok(TypeInfo::Bool)
                             } else {
@@ -1320,7 +1318,7 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        ast::nodes::UnaryOp::Neg => {
+                        UnaryOp::Neg => {
                             if expr_type.is_compatible_with(&TypeInfo::I32)
                                 || expr_type.is_compatible_with(&TypeInfo::I64)
                                 || expr_type.is_compatible_with(&TypeInfo::F64)
@@ -1337,14 +1335,15 @@ impl TypeChecker {
                     }
                 }
                 Expr::Call { func, args } => {
-                    if let Some(enum_type) = self.try_eval_enum_constructor(func, args)? {
+                    if let Some(enum_type) = self.try_eval_enum_constructor(func.as_ref(), args)? {
                         return Ok(enum_type);
                     }
-                    let func_type = match func.as_ref() {
-                        Expr::Identifier { name, span } => {
+                    let span = func.span();
+                    let func_type = match func.as_ref().as_ref() {
+                        Expr::Identifier(name) => {
                             self.context.get_function(name).cloned().ok_or_else(|| {
                                 let err = TypeError::new(format!("undefined function: {}", name))
-                                    .with_optional_span(*span);
+                                    .with_span(*span);
                                 anyhow::Error::from(err)
                             })?
                         }
@@ -1508,16 +1507,19 @@ impl TypeChecker {
                                 }
                             }
 
-                            let result_type = if let Expr::Member { object, field } = func.as_ref()
-                            {
-                                if let Expr::Identifier { name: module, .. } = object.as_ref() {
-                                    let full_name = format!("{}.{}", module, field);
-                                    if full_name == "sys.getenv" {
-                                        if let Some(option_enum) = self
-                                            .context
-                                            .build_enum_type("Option", vec![TypeInfo::Str])
-                                        {
-                                            option_enum
+                            let result_type =
+                                if let Expr::Member { object, field } = func.as_ref().as_ref() {
+                                    if let Expr::Identifier(module) = object.as_ref().as_ref() {
+                                        let full_name = format!("{}.{}", module, field);
+                                        if full_name == "sys.getenv" {
+                                            if let Some(option_enum) = self
+                                                .context
+                                                .build_enum_type("Option", vec![TypeInfo::Str])
+                                            {
+                                                option_enum
+                                            } else {
+                                                *return_type
+                                            }
                                         } else {
                                             *return_type
                                         }
@@ -1526,10 +1528,7 @@ impl TypeChecker {
                                     }
                                 } else {
                                     *return_type
-                                }
-                            } else {
-                                *return_type
-                            };
+                                };
                             Ok(result_type)
                         }
                         _ => {
@@ -1595,9 +1594,7 @@ impl TypeChecker {
                     }
                 }
                 Expr::Member { object, field } => {
-                    if let Expr::Identifier {
-                        name: enum_name, ..
-                    } = object.as_ref()
+                    if let Expr::Identifier(enum_name) = object.as_ref().as_ref()
                         && let Some(definition) = self.context.get_enum(enum_name)
                     {
                         if let Some(variant) = definition.variants.iter().find(|v| v.name == *field)
@@ -1719,7 +1716,7 @@ impl TypeChecker {
                     // F-strings always evaluate to strings
                     // Type check all embedded expressions
                     for part in parts {
-                        if let ast::nodes::FStringPart::Expr(expr) = part {
+                        if let FStringPart::Expr(expr) = part.as_ref() {
                             let _ = self.infer_expr_type(expr)?;
                             // We don't care about the type, just that it's valid
                         }
@@ -1738,14 +1735,15 @@ impl TypeChecker {
                     let mut param_types = Vec::new();
                     let mut param_defaults = Vec::new();
                     for param in params {
-                        let param_type = if let Some(ty) = &param.ty {
+                        let param_type = if let Some(ty) = &param.as_ref().ty {
                             self.context.type_from_annotation(ty)
                         } else {
                             TypeInfo::Unknown
                         };
                         param_types.push(param_type.clone());
-                        lambda_context.insert_variable(param.name.clone(), param_type);
-                        param_defaults.push(param.default.is_some());
+                        lambda_context
+                            .insert_variable(param.as_ref().name.as_ref().clone(), param_type);
+                        param_defaults.push(param.as_ref().default.is_some());
                     }
 
                     // Type check lambda body
@@ -2009,7 +2007,8 @@ impl TypeChecker {
 
                         // If normalization didn't work and we have an enum variant pattern, try to build the enum type directly
                         if let TypeInfo::Generic { base, args } = &normalized_type
-                            && let ast::nodes::Pattern::EnumVariant { enum_name, .. } = &arm.pattern
+                            && let Pattern::EnumVariant { enum_name, .. } =
+                                &arm.as_ref().pattern.as_ref()
                             && base == enum_name
                         {
                             // Try to build the enum type directly using the pattern's enum name
@@ -2021,13 +2020,13 @@ impl TypeChecker {
                         }
 
                         // Check pattern matches value type with sophisticated validation
-                        self.validate_pattern_against_type(&arm.pattern, &normalized_type);
+                        self.validate_pattern_against_type(&arm.as_ref().pattern, &normalized_type);
 
                         let old_vars = self.context.variables.clone();
-                        self.bind_pattern_variables(&arm.pattern, &normalized_type);
+                        self.bind_pattern_variables(&arm.as_ref().pattern, &normalized_type);
 
                         // Check guard if present
-                        if let Some(guard) = &arm.guard {
+                        if let Some(guard) = &arm.as_ref().guard {
                             let guard_type = self.infer_expr_type(guard)?;
                             if !guard_type.is_compatible_with(&TypeInfo::Bool) {
                                 self.errors.push(TypeError::new(format!(
@@ -2038,7 +2037,7 @@ impl TypeChecker {
                         }
 
                         // Get arm body type
-                        let body_type = self.infer_expr_type(&arm.body)?;
+                        let body_type = self.infer_expr_type(&arm.as_ref().body)?;
                         arm_types.push(body_type);
 
                         // Restore original variables (pattern bindings don't leak)
@@ -2172,7 +2171,7 @@ impl TypeChecker {
             }
         })()?;
 
-        self.record_expr_type(expr, &ty);
+        self.record_expr_type(expr.as_ref(), &ty);
         Ok(ty)
     }
 
@@ -2189,9 +2188,9 @@ impl TypeChecker {
         self.expr_types
     }
 
-    fn build_member_path(&self, object: &Expr, field: &str) -> String {
-        match object {
-            Expr::Identifier { name, .. } => format!("{}.{}", name, field),
+    fn build_member_path(&self, object: &Node<Expr>, field: &str) -> String {
+        match object.as_ref() {
+            Expr::Identifier(name) => format!("{}.{}", name, field),
             Expr::Member {
                 object: inner_obj,
                 field: inner_field,
@@ -2230,18 +2229,31 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::nodes::{BinaryOp, Expr, Literal, NumberLiteral};
+    use ast::nodes::{BinaryOp, Expr, Literal, Node, NumberLiteral};
+    use common::Span;
     use std::f64;
 
     #[test]
     fn test_type_inference_literal() {
         let mut checker = TypeChecker::new();
 
-        let expr = Expr::Literal(Literal::Number(NumberLiteral::new(42.0, false)));
+        let expr = Node::new(
+            Expr::Literal(Node::new(
+                Literal::Number(NumberLiteral::new(42.0, false)),
+                Span::new(0, 0),
+            )),
+            Span::new(0, 0),
+        );
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::I64);
 
-        let expr = Expr::Literal(Literal::Number(NumberLiteral::new(f64::consts::PI, true)));
+        let expr = Node::new(
+            Expr::Literal(Node::new(
+                Literal::Number(NumberLiteral::new(f64::consts::PI, true)),
+                Span::new(0, 0),
+            )),
+            Span::new(0, 0),
+        );
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
     }
@@ -2250,15 +2262,26 @@ mod tests {
     fn test_type_inference_binary() {
         let mut checker = TypeChecker::new();
 
-        let expr = Expr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(
-                1.0, true,
-            )))),
-            right: Box::new(Expr::Literal(Literal::Number(NumberLiteral::new(
-                2.0, true,
-            )))),
-        };
+        let expr = Node::new(
+            Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Node::new(
+                    Expr::Literal(Node::new(
+                        Literal::Number(NumberLiteral::new(1.0, true)),
+                        Span::new(0, 0),
+                    )),
+                    Span::new(0, 0),
+                )),
+                right: Box::new(Node::new(
+                    Expr::Literal(Node::new(
+                        Literal::Number(NumberLiteral::new(2.0, true)),
+                        Span::new(0, 0),
+                    )),
+                    Span::new(0, 0),
+                )),
+            },
+            Span::new(0, 0),
+        );
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
     }

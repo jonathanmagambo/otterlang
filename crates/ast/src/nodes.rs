@@ -1,21 +1,102 @@
+use std::convert::{AsMut, AsRef};
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 
 use common::Span;
 
+/// A node in the AST with an associated span.
+#[derive(Debug, Clone)]
+pub struct Node<T> {
+    value: T,
+    span: Span,
+}
+
+impl<T> Node<T> {
+    pub fn new(value: T, span: impl Into<Span>) -> Self {
+        Self {
+            value,
+            span: span.into(),
+        }
+    }
+
+    pub fn into_inner(self) -> T {
+        self.value
+    }
+
+    pub fn into_parts(self) -> (T, Span) {
+        (self.value, self.span)
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.span
+    }
+
+    pub fn map<U, F>(self, f: F) -> Node<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        Node {
+            value: f(self.value),
+            span: self.span,
+        }
+    }
+}
+
+impl<T> AsRef<T> for Node<T> {
+    fn as_ref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> AsMut<T> for Node<T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.value
+    }
+}
+
+impl<T> PartialEq for Node<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+}
+
+impl<T> Eq for Node<T> where T: Eq {}
+
+impl<T> Hash for Node<T>
+where
+    T: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+    }
+}
+
+impl<T> Display for Node<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.value)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Node<Statement>>,
 }
 
 impl Program {
-    pub fn new(statements: Vec<Statement>) -> Self {
+    pub fn new(statements: Vec<Node<Statement>>) -> Self {
         Self { statements }
     }
 
     /// Get all function definitions in the program
-    pub fn functions(&self) -> impl Iterator<Item = &Function> {
+    pub fn functions(&self) -> impl Iterator<Item = &Node<Function>> {
         self.statements.iter().filter_map(|stmt| {
-            if let Statement::Function(func) = stmt {
+            if let Statement::Function(func) = stmt.as_ref() {
                 Some(func)
             } else {
                 None
@@ -25,25 +106,28 @@ impl Program {
 
     /// Count the total number of statements recursively
     pub fn statement_count(&self) -> usize {
-        self.statements.iter().map(|s| s.recursive_count()).sum()
+        self.statements
+            .iter()
+            .map(|s| s.as_ref().recursive_count())
+            .sum()
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: String,
-    pub params: Vec<Param>,
-    pub ret_ty: Option<Type>,
-    pub body: Block,
+    pub params: Vec<Node<Param>>,
+    pub ret_ty: Option<Node<Type>>,
+    pub body: Node<Block>,
     pub public: bool,
 }
 
 impl Function {
     pub fn new(
         name: impl Into<String>,
-        params: Vec<Param>,
-        ret_ty: Option<Type>,
-        body: Block,
+        params: Vec<Node<Param>>,
+        ret_ty: Option<Node<Type>>,
+        body: Node<Block>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -56,9 +140,9 @@ impl Function {
 
     pub fn new_public(
         name: impl Into<String>,
-        params: Vec<Param>,
-        ret_ty: Option<Type>,
-        body: Block,
+        params: Vec<Node<Param>>,
+        ret_ty: Option<Node<Type>>,
+        body: Node<Block>,
     ) -> Self {
         Self {
             name: name.into(),
@@ -73,40 +157,29 @@ impl Function {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
     Simple(String),
-    Generic { base: String, args: Vec<Type> },
+    Generic { base: String, args: Vec<Node<Type>> },
 }
 
 #[derive(Debug, Clone)]
 pub struct Param {
-    pub name: String,
-    pub ty: Option<Type>,
-    pub default: Option<Expr>,
-    pub span: Option<Span>,
+    pub name: Node<String>,
+    pub ty: Option<Node<Type>>,
+    pub default: Option<Node<Expr>>,
 }
 
 impl Param {
-    pub fn new(name: impl Into<String>, ty: Option<Type>, default: Option<Expr>) -> Self {
-        Self {
-            name: name.into(),
-            ty,
-            default,
-            span: None,
-        }
-    }
-
-    pub fn with_span(mut self, span: Option<Span>) -> Self {
-        self.span = span;
-        self
+    pub fn new(name: Node<String>, ty: Option<Node<Type>>, default: Option<Node<Expr>>) -> Self {
+        Self { name, ty, default }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Node<Statement>>,
 }
 
 impl Block {
-    pub fn new(statements: Vec<Statement>) -> Self {
+    pub fn new(statements: Vec<Node<Statement>>) -> Self {
         Self { statements }
     }
 }
@@ -129,11 +202,11 @@ impl UseImport {
 #[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: String,
-    pub fields: Vec<Type>,
+    pub fields: Vec<Node<Type>>,
 }
 
 impl EnumVariant {
-    pub fn new(name: impl Into<String>, fields: Vec<Type>) -> Self {
+    pub fn new(name: impl Into<String>, fields: Vec<Node<Type>>) -> Self {
         Self {
             name: name.into(),
             fields,
@@ -145,70 +218,67 @@ impl EnumVariant {
 pub enum Statement {
     // Variable declarations and assignments
     Let {
-        name: String,
-        ty: Option<Type>,
-        expr: Expr,
+        name: Node<String>,
+        expr: Node<Expr>,
+        ty: Option<Node<Type>>,
         public: bool,
-        span: Option<Span>,
     },
     Assignment {
-        name: String,
-        expr: Expr,
-        span: Option<Span>,
+        name: Node<String>,
+        expr: Node<Expr>,
     },
 
     // Control flow
     If {
-        cond: Box<Expr>,
-        then_block: Block,
-        elif_blocks: Vec<(Expr, Block)>,
-        else_block: Option<Block>,
+        cond: Node<Expr>,
+        then_block: Node<Block>,
+        elif_blocks: Vec<(Node<Expr>, Node<Block>)>, // Vec<(condition, block)>
+        else_block: Option<Node<Block>>,
     },
     For {
-        var: String,
-        iterable: Expr,
-        body: Block,
-        var_span: Option<Span>,
+        var: Node<String>,
+        iterable: Node<Expr>,
+        body: Node<Block>,
     },
     While {
-        cond: Expr,
-        body: Block,
+        cond: Node<Expr>,
+        body: Node<Block>,
     },
     Break,
     Continue,
     Pass,
-    Return(Option<Expr>),
+    Return(Option<Node<Expr>>),
 
     // Function definitions
-    Function(Function),
+    Function(Node<Function>),
 
     // Type definitions
     Struct {
         name: String,
-        fields: Vec<(String, Type)>,
-        methods: Vec<Function>, // Methods (functions with self parameter)
+        fields: Vec<(String, Node<Type>)>,
+        methods: Vec<Node<Function>>, // Methods (functions with self parameter)
         public: bool,
         generics: Vec<String>, // Generic type parameters
     },
     Enum {
         name: String,
-        variants: Vec<EnumVariant>,
+        variants: Vec<Node<EnumVariant>>,
         public: bool,
         generics: Vec<String>,
     },
     TypeAlias {
         name: String,
-        target: Type,
+        target: Node<Type>,
         public: bool,
         generics: Vec<String>, // Generic type parameters
     },
 
     // Expressions as statements
-    Expr(Expr),
+    Expr(Node<Expr>),
 
     // Module imports
     Use {
-        imports: Vec<UseImport>,
+        imports: Vec<Node<UseImport>>,
     },
 
     // Re-exports
@@ -219,16 +289,16 @@ pub enum Statement {
     },
 
     // Blocks (for grouping)
-    Block(Block),
+    Block(Node<Block>),
 
     // Exception handling
     Try {
-        body: Block,
-        handlers: Vec<ExceptHandler>,
-        else_block: Option<Block>,
-        finally_block: Option<Block>,
+        body: Node<Block>,
+        handlers: Vec<Node<ExceptHandler>>,
+        else_block: Option<Node<Block>>,
+        finally_block: Option<Node<Block>>,
     },
-    Raise(Option<Expr>),
+    Raise(Option<Node<Expr>>),
 }
 
 impl Statement {
@@ -256,35 +326,35 @@ impl Statement {
                 ..
             } => {
                 let mut count = 1;
-                count += then_block.recursive_count();
+                count += then_block.as_ref().recursive_count();
                 for (_, block) in elif_blocks {
-                    count += block.recursive_count();
+                    count += block.as_ref().recursive_count();
                 }
                 if let Some(block) = else_block {
-                    count += block.recursive_count();
+                    count += block.as_ref().recursive_count();
                 }
                 count
             }
             Statement::For { body, .. } | Statement::While { body, .. } => {
-                1 + body.recursive_count()
+                1 + body.as_ref().recursive_count()
             }
-            Statement::Function(func) => 1 + func.body.recursive_count(),
-            Statement::Block(block) => block.recursive_count(),
+            Statement::Function(func) => 1 + func.as_ref().body.as_ref().recursive_count(),
+            Statement::Block(block) => block.as_ref().recursive_count(),
             Statement::Try {
                 body,
                 handlers,
                 else_block,
                 finally_block,
             } => {
-                let mut count = 1 + body.recursive_count();
+                let mut count = 1 + body.as_ref().recursive_count();
                 for handler in handlers {
-                    count += handler.body.recursive_count();
+                    count += handler.as_ref().body.as_ref().recursive_count();
                 }
                 if let Some(block) = else_block {
-                    count += block.recursive_count();
+                    count += block.as_ref().recursive_count();
                 }
                 if let Some(block) = finally_block {
-                    count += block.recursive_count();
+                    count += block.as_ref().recursive_count();
                 }
                 count
             }
@@ -303,7 +373,10 @@ impl Statement {
 impl Block {
     /// Recursively count statements
     pub fn recursive_count(&self) -> usize {
-        self.statements.iter().map(|s| s.recursive_count()).sum()
+        self.statements
+            .iter()
+            .map(|s| s.as_ref().recursive_count())
+            .sum()
     }
 
     /// Check if block is empty
@@ -315,114 +388,111 @@ impl Block {
 #[derive(Debug, Clone)]
 pub enum Expr {
     // Literals
-    Literal(Literal),
+    Literal(Node<Literal>),
 
     // Variables and access
-    Identifier {
-        name: String,
-        span: Option<Span>,
-    },
+    Identifier(String),
     Member {
-        object: Box<Expr>,
+        object: Box<Node<Expr>>,
         field: String,
     },
 
     // Function calls
     Call {
-        func: Box<Expr>,
-        args: Vec<Expr>,
+        func: Box<Node<Expr>>,
+        args: Vec<Node<Expr>>,
     },
 
     // Binary operations
     Binary {
         op: BinaryOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Box<Node<Expr>>,
+        right: Box<Node<Expr>>,
     },
 
     // Unary operations
     Unary {
         op: UnaryOp,
-        expr: Box<Expr>,
+        expr: Box<Node<Expr>>,
     },
 
     // Control flow expressions
     If {
-        cond: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Option<Box<Expr>>,
+        cond: Box<Node<Expr>>,
+        then_branch: Box<Node<Expr>>,
+        else_branch: Option<Box<Node<Expr>>>,
     },
 
     // Match expressions (pattern matching)
     Match {
-        value: Box<Expr>,
-        arms: Vec<MatchArm>,
+        value: Box<Node<Expr>>,
+        arms: Vec<Node<MatchArm>>,
     },
 
     // Range expressions
     Range {
-        start: Box<Expr>,
-        end: Box<Expr>,
+        start: Box<Node<Expr>>,
+        end: Box<Node<Expr>>,
     },
 
     // Collection literals
-    Array(Vec<Expr>),
-    Dict(Vec<(Expr, Expr)>), // Key-value pairs
+    Array(Vec<Node<Expr>>),
+    Dict(Vec<(Node<Expr>, Node<Expr>)>), // Key-value pairs
     ListComprehension {
-        element: Box<Expr>,
+        element: Box<Node<Expr>>,
         var: String,
-        iterable: Box<Expr>,
-        condition: Option<Box<Expr>>,
+        iterable: Box<Node<Expr>>,
+        condition: Option<Box<Node<Expr>>>,
     },
     DictComprehension {
-        key: Box<Expr>,
-        value: Box<Expr>,
+        key: Box<Node<Expr>>,
+        value: Box<Node<Expr>>,
         var: String,
-        iterable: Box<Expr>,
-        condition: Option<Box<Expr>>,
+        iterable: Box<Node<Expr>>,
+        condition: Option<Box<Node<Expr>>>,
     },
 
     // String interpolation
     FString {
-        parts: Vec<FStringPart>,
+        parts: Vec<Node<FStringPart>>,
     },
 
     // Lambda expressions
     Lambda {
-        params: Vec<Param>,
-        ret_ty: Option<Type>,
-        body: Block,
+        params: Vec<Node<Param>>,
+        ret_ty: Option<Node<Type>>,
+        body: Node<Block>,
     },
 
     // Async operations
-    Await(Box<Expr>),
-    Spawn(Box<Expr>),
+    Await(Box<Node<Expr>>),
+    Spawn(Box<Node<Expr>>),
 
     // Struct instantiation
     Struct {
         name: String,
-        fields: Vec<(String, Expr)>, // field name -> value
+        fields: Vec<(String, Node<Expr>)>, // field name -> value
     },
 }
 
 /// Match arm for pattern matching
 #[derive(Debug, Clone)]
 pub struct MatchArm {
-    pub pattern: Pattern,
-    pub guard: Option<Expr>,
-    pub body: Expr,
+    pub pattern: Node<Pattern>,
+    pub guard: Option<Node<Expr>>,
+    pub body: Node<Expr>,
 }
 
 /// Exception handler for try/except blocks
 #[derive(Debug, Clone)]
 pub struct ExceptHandler {
-    pub exception: Option<Type>,
+    pub exception: Option<Node<Type>>,
     pub alias: Option<String>,
-    pub body: Block,
+    pub body: Node<Block>,
 }
 
 impl ExceptHandler {
-    pub fn new(exception: Option<Type>, alias: Option<String>, body: Block) -> Self {
+    pub fn new(exception: Option<Node<Type>>, alias: Option<String>, body: Node<Block>) -> Self {
         Self {
             exception,
             alias,
@@ -437,23 +507,23 @@ pub enum Pattern {
     /// Wildcard pattern (_)
     Wildcard,
     /// Literal pattern (1, true, "hello")
-    Literal(Literal),
+    Literal(Node<Literal>),
     /// Identifier pattern (binds to variable)
     Identifier(String),
     /// Enum variant pattern (Enum.Variant(...))
     EnumVariant {
         enum_name: String,
         variant: String,
-        fields: Vec<Pattern>,
+        fields: Vec<Node<Pattern>>,
     },
     /// Tuple/struct pattern (Point { x, y })
     Struct {
         name: String,
-        fields: Vec<(String, Option<Pattern>)>, // field name and optional nested pattern
+        fields: Vec<(String, Option<Node<Pattern>>)>, // field name and optional nested pattern
     },
     /// Array/list pattern ([a, b, ..rest])
     Array {
-        patterns: Vec<Pattern>,
+        patterns: Vec<Node<Pattern>>,
         rest: Option<String>, // Variable name for rest pattern
     },
 }
@@ -461,7 +531,7 @@ pub enum Pattern {
 #[derive(Debug, Clone)]
 pub enum FStringPart {
     Text(String),
-    Expr(Box<Expr>),
+    Expr(Node<Expr>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

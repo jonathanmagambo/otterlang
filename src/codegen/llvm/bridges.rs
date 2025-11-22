@@ -53,15 +53,15 @@ fn collect_rust_imports(program: &Program) -> HashMap<String, HashSet<String>> {
     for statement in &program.statements {
         if let Statement::Use {
             imports: use_imports,
-        } = statement
+        } = statement.as_ref()
         {
             for import in use_imports {
-                if let Some((namespace, crate_name)) = import.module.split_once(':')
+                if let Some((namespace, crate_name)) = import.as_ref().module.split_once(':')
                     && namespace == "rust"
                 {
                     let aliases = imports.entry(crate_name.to_string()).or_default();
                     aliases.insert(crate_name.to_string());
-                    if let Some(alias_name) = &import.alias {
+                    if let Some(alias_name) = &import.as_ref().alias {
                         aliases.insert(alias_name.clone());
                     }
                 }

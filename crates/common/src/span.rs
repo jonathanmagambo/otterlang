@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     start: usize,
@@ -34,8 +36,14 @@ impl Span {
     }
 }
 
-impl From<Span> for std::ops::Range<usize> {
+impl From<Span> for Range<usize> {
     fn from(span: Span) -> Self {
         span.start..span.end
+    }
+}
+
+impl From<Range<usize>> for Span {
+    fn from(range: Range<usize>) -> Self {
+        Span::new(range.start, range.end)
     }
 }

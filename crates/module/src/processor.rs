@@ -34,9 +34,9 @@ impl ModuleProcessor {
         self.load_default_modules(&mut dependencies)?;
 
         for statement in &program.statements {
-            if let Statement::Use { imports } = statement {
+            if let Statement::Use { imports } = statement.as_ref() {
                 for import in imports {
-                    let module = &import.module;
+                    let module = &import.as_ref().module;
                     let module_path = ModulePath::from_string(module, &self.source_dir)?;
 
                     match module_path {
@@ -99,9 +99,9 @@ impl ModuleProcessor {
         self.load_default_modules(&mut dependencies)?;
 
         for statement in &module_statements {
-            if let Statement::Use { imports } = statement {
+            if let Statement::Use { imports } = statement.as_ref() {
                 for import in imports {
-                    let module = &import.module;
+                    let module = &import.as_ref().module;
                     let module_dir = module_path.parent().unwrap_or(Path::new("."));
                     let module_path_enum = ModulePath::from_string(module, module_dir)?;
 

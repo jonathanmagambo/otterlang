@@ -12,7 +12,7 @@ use crate::codegen::{
 };
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::TypeChecker;
-use ast::nodes::Program;
+use ast::nodes::{Program, Statement};
 
 use super::adaptive::{AdaptiveConcurrencyManager, AdaptiveMemoryManager};
 use super::cache::FunctionCache;
@@ -204,9 +204,9 @@ impl JitEngine {
 
         // Extract function definitions from program
         for stmt in &program.statements {
-            if let ast::nodes::Statement::Function(func) = stmt {
-                let func_name = &func.name;
-                let arg_count = func.params.len();
+            if let Statement::Function(func) = stmt.as_ref() {
+                let func_name = &func.as_ref().name;
+                let arg_count = func.as_ref().params.len();
 
                 // Try to load function with different signatures
                 let func_ptr = self.load_function_symbol(&library, func_name, arg_count)?;
@@ -355,11 +355,15 @@ impl JitEngine {
 
         // Reload hot functions
         for hot_func in hot_functions {
-            if let Some(func) = program.statements.iter().find_map(|stmt| match stmt {
-                ast::nodes::Statement::Function(f) if f.name == hot_func.name => Some(f),
-                _ => None,
-            }) {
-                let arg_count = func.params.len();
+            if let Some(func) = program
+                .statements
+                .iter()
+                .find_map(|stmt| match stmt.as_ref() {
+                    Statement::Function(f) if f.as_ref().name == hot_func.name => Some(f),
+                    _ => None,
+                })
+            {
+                let arg_count = func.as_ref().params.len();
                 if let Ok(func_ptr) = self.load_function_symbol(&library, &hot_func.name, arg_count)
                 {
                     let mut functions = self.compiled_functions.lock().unwrap();

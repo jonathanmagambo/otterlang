@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::call_graph::CallGraph;
 use ast::nodes::{
-    Block, Expr, FStringPart, Function, Literal, MatchArm, Pattern, Program, Statement,
+    Block, Expr, FStringPart, Function, Literal, MatchArm, Node, Pattern, Program, Statement,
 };
 
 /// Configuration for the inliner.
@@ -79,8 +79,8 @@ impl Inliner {
         };
 
         for stmt in &mut optimized.statements {
-            if let Statement::Function(func) = stmt {
-                let mut stack = vec![func.name.clone()];
+            if let Statement::Function(func) = stmt.as_mut() {
+                let mut stack = vec![func.as_ref().name.clone()];
                 self.inline_function(func, &ctx, &mut stack, &mut stats, 0);
             }
         }
@@ -90,7 +90,7 @@ impl Inliner {
 
     fn inline_function(
         &self,
-        function: &mut Function,
+        function: &mut Node<Function>,
         ctx: &InlineContext<'_>,
         stack: &mut Vec<String>,
         stats: &mut InlineStats,
@@ -99,22 +99,23 @@ impl Inliner {
         if depth >= self.config.max_depth {
             return;
         }
-        let current_hot = ctx.hot_functions.contains(&function.name);
+        let name = function.as_ref().name.clone();
+        let current_hot = ctx.hot_functions.contains(&name);
         self.inline_block(
-            &mut function.body,
+            &mut function.as_mut().body,
             ctx,
             stack,
             stats,
             depth,
             current_hot,
-            &function.name,
+            &name,
         );
     }
 
     #[allow(clippy::too_many_arguments)]
     fn inline_block(
         &self,
-        block: &mut Block,
+        block: &mut Node<Block>,
         ctx: &InlineContext<'_>,
         stack: &mut Vec<String>,
         stats: &mut InlineStats,
@@ -122,9 +123,9 @@ impl Inliner {
         current_hot: bool,
         current_name: &str,
     ) {
-        let mut transformed = Vec::with_capacity(block.statements.len());
+        let mut transformed = Vec::with_capacity(block.as_ref().statements.len());
 
-        for stmt in block.statements.drain(..) {
+        for stmt in block.as_mut().statements.drain(..) {
             self.inline_statement(
                 stmt,
                 ctx,
@@ -137,33 +138,33 @@ impl Inliner {
             );
         }
 
-        block.statements = transformed;
+        block.as_mut().statements = transformed;
     }
 
     #[allow(clippy::too_many_arguments)]
     fn inline_statement(
         &self,
-        stmt: Statement,
+        stmt: Node<Statement>,
         ctx: &InlineContext<'_>,
         stack: &mut Vec<String>,
         stats: &mut InlineStats,
         depth: usize,
         current_hot: bool,
         current_name: &str,
-        out: &mut Vec<Statement>,
+        out: &mut Vec<Node<Statement>>,
     ) {
+        let (stmt, span) = stmt.into_parts();
         match stmt {
             Statement::Let {
                 name,
                 ty,
                 expr,
                 public,
-                span,
             } => {
                 let annotation = ty.clone();
-                let expr_clone = expr.clone();
+                let mut expr_clone = expr.clone();
                 if let Some(mut snippet) = self.try_inline_expr(
-                    expr_clone,
+                    &mut expr_clone,
                     true,
                     ctx,
                     stack,
@@ -173,14 +174,19 @@ impl Inliner {
                     current_name,
                 ) {
                     self.emit_snippet(&mut snippet, ctx, stack, stats, depth, out);
-                    let value = snippet.result_expr.unwrap_or(Expr::Literal(Literal::Unit));
-                    out.push(Statement::Let {
-                        name,
-                        ty: annotation.clone(),
-                        expr: value,
-                        public,
+                    let value = snippet.result_expr.unwrap_or(Node::new(
+                        Expr::Literal(Node::new(Literal::Unit, span)),
                         span,
-                    });
+                    ));
+                    out.push(Node::new(
+                        Statement::Let {
+                            name,
+                            ty: annotation.clone(),
+                            expr: value,
+                            public,
+                        },
+                        span,
+                    ));
                 } else {
                     let mut expr = expr;
                     self.inline_expr(
@@ -192,19 +198,21 @@ impl Inliner {
                         current_hot,
                         current_name,
                     );
-                    out.push(Statement::Let {
-                        name,
-                        ty: annotation,
-                        expr,
-                        public,
+                    out.push(Node::new(
+                        Statement::Let {
+                            name,
+                            ty: annotation,
+                            expr,
+                            public,
+                        },
                         span,
-                    });
+                    ));
                 }
             }
-            Statement::Assignment { name, expr, span } => {
-                let expr_clone = expr.clone();
+            Statement::Assignment { name, expr } => {
+                let mut expr_clone = expr.clone();
                 if let Some(mut snippet) = self.try_inline_expr(
-                    expr_clone,
+                    &mut expr_clone,
                     true,
                     ctx,
                     stack,
@@ -214,12 +222,11 @@ impl Inliner {
                     current_name,
                 ) {
                     self.emit_snippet(&mut snippet, ctx, stack, stats, depth, out);
-                    let value = snippet.result_expr.unwrap_or(Expr::Literal(Literal::Unit));
-                    out.push(Statement::Assignment {
-                        name,
-                        expr: value,
+                    let value = snippet.result_expr.unwrap_or(Node::new(
+                        Expr::Literal(Node::new(Literal::Unit, span)),
                         span,
-                    });
+                    ));
+                    out.push(Node::new(Statement::Assignment { name, expr: value }, span));
                 } else {
                     let mut expr = expr;
                     self.inline_expr(
@@ -231,12 +238,12 @@ impl Inliner {
                         current_hot,
                         current_name,
                     );
-                    out.push(Statement::Assignment { name, expr, span });
+                    out.push(Node::new(Statement::Assignment { name, expr }, span));
                 }
             }
             Statement::Expr(mut expr) => {
                 if let Some(mut snippet) = self.try_inline_expr(
-                    expr.clone(),
+                    &mut expr,
                     false,
                     ctx,
                     stack,
@@ -256,7 +263,7 @@ impl Inliner {
                         current_hot,
                         current_name,
                     );
-                    out.push(Statement::Expr(expr));
+                    out.push(Node::new(Statement::Expr(expr), span));
                 }
             }
             Statement::If {
@@ -289,12 +296,15 @@ impl Inliner {
                 if let Some(ref mut blk) = else_block {
                     self.inline_block(blk, ctx, stack, stats, depth, current_hot, current_name);
                 }
-                out.push(Statement::If {
-                    cond,
-                    then_block,
-                    elif_blocks,
-                    else_block,
-                });
+                out.push(Node::new(
+                    Statement::If {
+                        cond,
+                        then_block,
+                        elif_blocks,
+                        else_block,
+                    },
+                    span,
+                ));
             }
             Statement::While { mut cond, mut body } => {
                 self.inline_expr(
@@ -315,13 +325,12 @@ impl Inliner {
                     current_hot,
                     current_name,
                 );
-                out.push(Statement::While { cond, body });
+                out.push(Node::new(Statement::While { cond, body }, span));
             }
             Statement::For {
                 var,
                 mut iterable,
                 mut body,
-                var_span,
             } => {
                 self.inline_expr(
                     &mut iterable,
@@ -341,12 +350,14 @@ impl Inliner {
                     current_hot,
                     current_name,
                 );
-                out.push(Statement::For {
-                    var,
-                    iterable,
-                    body,
-                    var_span,
-                });
+                out.push(Node::new(
+                    Statement::For {
+                        var,
+                        iterable,
+                        body,
+                    },
+                    span,
+                ));
             }
             Statement::Block(mut inner) => {
                 self.inline_block(
@@ -358,7 +369,7 @@ impl Inliner {
                     current_hot,
                     current_name,
                 );
-                out.push(Statement::Block(inner));
+                out.push(Node::new(Statement::Block(inner), span));
             }
             Statement::Try {
                 mut body,
@@ -377,7 +388,7 @@ impl Inliner {
                 );
                 for handler in &mut handlers {
                     self.inline_block(
-                        &mut handler.body,
+                        &mut handler.as_mut().body,
                         ctx,
                         stack,
                         stats,
@@ -392,21 +403,24 @@ impl Inliner {
                 if let Some(ref mut blk) = finally_block {
                     self.inline_block(blk, ctx, stack, stats, depth, current_hot, current_name);
                 }
-                out.push(Statement::Try {
-                    body,
-                    handlers,
-                    else_block,
-                    finally_block,
-                });
+                out.push(Node::new(
+                    Statement::Try {
+                        body,
+                        handlers,
+                        else_block,
+                        finally_block,
+                    },
+                    span,
+                ));
             }
-            other => out.push(other),
+            other => out.push(Node::new(other, span)),
         }
     }
 
     #[allow(clippy::too_many_arguments)]
     fn inline_expr(
         &self,
-        expr: &mut Expr,
+        expr: &mut Node<Expr>,
         ctx: &InlineContext<'_>,
         stack: &mut Vec<String>,
         stats: &mut InlineStats,
@@ -414,7 +428,7 @@ impl Inliner {
         current_hot: bool,
         current_name: &str,
     ) {
-        match expr {
+        match expr.as_mut() {
             Expr::Call { func, args } => {
                 self.inline_expr(func, ctx, stack, stats, depth, current_hot, current_name);
                 for arg in args {
@@ -450,7 +464,7 @@ impl Inliner {
             Expr::Match { value, arms } => {
                 self.inline_expr(value, ctx, stack, stats, depth, current_hot, current_name);
                 for arm in arms {
-                    if let Some(guard) = &mut arm.guard {
+                    if let Some(guard) = &mut arm.as_mut().guard {
                         self.inline_expr(
                             guard,
                             ctx,
@@ -462,7 +476,7 @@ impl Inliner {
                         );
                     }
                     self.inline_expr(
-                        &mut arm.body,
+                        &mut arm.as_mut().body,
                         ctx,
                         stack,
                         stats,
@@ -527,7 +541,7 @@ impl Inliner {
             }
             Expr::FString { parts } => {
                 for part in parts {
-                    if let FStringPart::Expr(expr) = part {
+                    if let FStringPart::Expr(expr) = part.as_mut() {
                         self.inline_expr(expr, ctx, stack, stats, depth, current_hot, current_name);
                     }
                 }
@@ -550,7 +564,7 @@ impl Inliner {
     #[allow(clippy::too_many_arguments)]
     fn try_inline_expr(
         &self,
-        expr: Expr,
+        expr: &mut Node<Expr>,
         needs_result: bool,
         ctx: &InlineContext<'_>,
         stack: &mut [String],
@@ -559,11 +573,11 @@ impl Inliner {
         current_hot: bool,
         current_name: &str,
     ) -> Option<InlineSnippet> {
-        if let Expr::Call { func, args } = expr
-            && let Expr::Identifier { name, .. } = *func
+        if let Expr::Call { func, args } = expr.as_mut()
+            && let Expr::Identifier(name) = func.as_ref().as_ref()
         {
             return self.try_inline_call(
-                &name,
+                name,
                 args,
                 ctx,
                 stack,
@@ -581,7 +595,7 @@ impl Inliner {
     fn try_inline_call(
         &self,
         callee_name: &str,
-        args: Vec<Expr>,
+        args: &[Node<Expr>],
         ctx: &InlineContext<'_>,
         stack: &mut [String],
         stats: &mut InlineStats,
@@ -600,7 +614,7 @@ impl Inliner {
             }
         };
 
-        if args.len() != callee.params.len() {
+        if args.len() != callee.as_ref().params.len() {
             stats.skipped_complex += 1;
             return None;
         }
@@ -615,20 +629,20 @@ impl Inliner {
             return None;
         }
 
-        let size = callee.body.recursive_count();
+        let size = callee.as_ref().body.as_ref().recursive_count();
         if size > self.config.max_inline_size {
             stats.skipped_size += 1;
             return None;
         }
 
-        if Self::has_internal_return(&callee.body) {
+        if Self::has_internal_return(&callee.as_ref().body) {
             stats.skipped_complex += 1;
             return None;
         }
 
         let inline_id = self.next_inline_id();
         let mut builder = InlineBuilder::new(inline_id);
-        let snippet = builder.build_snippet(callee, &args);
+        let snippet = builder.build_snippet(callee, args);
 
         if needs_result && snippet.result_expr.is_none() {
             stats.skipped_complex += 1;
@@ -650,7 +664,7 @@ impl Inliner {
         stack: &mut Vec<String>,
         stats: &mut InlineStats,
         depth: usize,
-        out: &mut Vec<Statement>,
+        out: &mut Vec<Node<Statement>>,
     ) {
         stack.push(snippet.callee.clone());
         let callee_hot = ctx.hot_functions.contains(&snippet.callee);
@@ -665,17 +679,17 @@ impl Inliner {
         );
         stack.pop();
 
-        out.append(&mut snippet.block.statements);
+        out.append(&mut snippet.block.as_mut().statements);
     }
 
-    fn has_internal_return(block: &Block) -> bool {
-        if block.statements.is_empty() {
+    fn has_internal_return(block: &Node<Block>) -> bool {
+        if block.as_ref().statements.is_empty() {
             return false;
         }
 
-        for (idx, stmt) in block.statements.iter().enumerate() {
-            let is_last = idx == block.statements.len() - 1;
-            match stmt {
+        for (idx, stmt) in block.as_ref().statements.iter().enumerate() {
+            let is_last = idx == block.as_ref().statements.len() - 1;
+            match stmt.as_ref() {
                 Statement::Return(_) => {
                     if !is_last {
                         return true;
@@ -718,7 +732,7 @@ impl Inliner {
                         return true;
                     }
                     for handler in handlers {
-                        if Self::has_internal_return(&handler.body) {
+                        if Self::has_internal_return(&handler.as_ref().body) {
                             return true;
                         }
                     }
@@ -744,11 +758,11 @@ impl Inliner {
         self.inline_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn index_functions(program: &Program) -> HashMap<String, Function> {
+    fn index_functions(program: &Program) -> HashMap<String, Node<Function>> {
         let mut map = HashMap::new();
         for stmt in &program.statements {
-            if let Statement::Function(func) = stmt {
-                map.insert(func.name.clone(), func.clone());
+            if let Statement::Function(func) = stmt.as_ref() {
+                map.insert(func.as_ref().name.clone(), func.clone());
             }
         }
         map
@@ -763,20 +777,20 @@ impl Default for Inliner {
 
 struct InlineSnippet {
     callee: String,
-    block: Block,
-    result_expr: Option<Expr>,
+    block: Node<Block>,
+    result_expr: Option<Node<Expr>>,
 }
 
 struct InlineContext<'a> {
-    function_map: &'a HashMap<String, Function>,
+    function_map: &'a HashMap<String, Node<Function>>,
     hot_functions: &'a HashSet<String>,
     #[allow(dead_code)]
     call_graph: &'a CallGraph,
 }
 
 struct BuiltSnippet {
-    block: Block,
-    result_expr: Option<Expr>,
+    block: Node<Block>,
+    result_expr: Option<Node<Expr>>,
 }
 
 struct InlineBuilder {
@@ -790,43 +804,50 @@ impl InlineBuilder {
         }
     }
 
-    fn build_snippet(&mut self, callee: &Function, args: &[Expr]) -> BuiltSnippet {
+    fn build_snippet(&mut self, callee: &Node<Function>, args: &[Node<Expr>]) -> BuiltSnippet {
         let mut statements = Vec::new();
         let inline_id = self.names.id();
-        for (idx, param) in callee.params.iter().enumerate() {
+        for (idx, param) in callee.as_ref().params.iter().enumerate() {
             let arg = args[idx].clone();
-            let param_name = self
-                .names
-                .register_param(&param.name, format!("__inl{}_arg{}", inline_id, idx));
-            statements.push(Statement::Let {
-                name: param_name,
-                ty: param.ty.clone(),
-                expr: arg,
-                public: false,
-                span: param.span,
-            });
+            let param_name = self.names.register_param(
+                param.as_ref().name.as_ref(),
+                format!("__inl{}_arg{}", inline_id, idx),
+            );
+            statements.push(Node::new(
+                Statement::Let {
+                    name: Node::new(param_name, *param.as_ref().name.span()),
+                    ty: param.as_ref().ty.clone(),
+                    expr: arg,
+                    public: false,
+                },
+                *param.span(),
+            ));
         }
 
-        let body = self.rewrite_body(&callee.body);
+        let body = self.rewrite_body(&callee.as_ref().body);
         statements.extend(body.statements);
 
         BuiltSnippet {
-            block: Block { statements },
+            block: Node::new(Block { statements }, *callee.span()),
             result_expr: body.return_expr,
         }
     }
 
-    fn rewrite_body(&mut self, block: &Block) -> InlineBody {
+    fn rewrite_body(&mut self, block: &Node<Block>) -> InlineBody {
         let mut statements = Vec::new();
-        let tail_return = block.statements.last().and_then(|stmt| match stmt {
-            Statement::Return(expr) => expr.clone(),
-            _ => None,
-        });
+        let tail_return = block
+            .as_ref()
+            .statements
+            .last()
+            .and_then(|stmt| match stmt.as_ref() {
+                Statement::Return(expr) => expr.clone(),
+                _ => None,
+            });
 
-        let tail_index = block.statements.len().saturating_sub(1);
+        let tail_index = block.as_ref().statements.len().saturating_sub(1);
 
-        for (idx, stmt) in block.statements.iter().enumerate() {
-            if matches!(stmt, Statement::Return(_)) && idx == tail_index {
+        for (idx, stmt) in block.as_ref().statements.iter().enumerate() {
+            if matches!(stmt.as_ref(), Statement::Return(_)) && idx == tail_index {
                 break;
             }
             statements.push(self.rewrite_statement(stmt));
@@ -838,35 +859,32 @@ impl InlineBuilder {
         }
     }
 
-    fn rewrite_statement(&mut self, stmt: &Statement) -> Statement {
-        match stmt {
+    fn rewrite_statement(&mut self, stmt: &Node<Statement>) -> Node<Statement> {
+        stmt.clone().map(|stmt| match stmt {
             Statement::Let {
                 name,
                 ty,
                 expr,
                 public,
-                span,
             } => Statement::Let {
-                name: self.names.rename_local(name),
+                name: name.map(|name| self.names.rename_local(&name)),
                 ty: ty.clone(),
-                expr: self.rewrite_expr(expr),
-                public: *public,
-                span: *span,
+                expr: self.rewrite_expr(&expr),
+                public,
             },
-            Statement::Assignment { name, expr, span } => Statement::Assignment {
-                name: self.names.resolve_or_clone(name),
-                expr: self.rewrite_expr(expr),
-                span: *span,
+            Statement::Assignment { name, expr } => Statement::Assignment {
+                name: name.map(|name| self.names.resolve_or_clone(&name)),
+                expr: self.rewrite_expr(&expr),
             },
-            Statement::Expr(expr) => Statement::Expr(self.rewrite_expr(expr)),
+            Statement::Expr(expr) => Statement::Expr(self.rewrite_expr(&expr)),
             Statement::If {
                 cond,
                 then_block,
                 elif_blocks,
                 else_block,
             } => Statement::If {
-                cond: Box::new(self.rewrite_expr(cond)),
-                then_block: self.rewrite_nested_block(then_block),
+                cond: self.rewrite_expr(&cond),
+                then_block: self.rewrite_nested_block(&then_block),
                 elif_blocks: elif_blocks
                     .iter()
                     .map(|(cond, block)| {
@@ -881,31 +899,30 @@ impl InlineBuilder {
                 var,
                 iterable,
                 body,
-                var_span,
             } => Statement::For {
-                var: self.names.rename_local(var),
-                iterable: self.rewrite_expr(iterable),
-                body: self.rewrite_nested_block(body),
-                var_span: *var_span,
+                var: var.map(|var| self.names.rename_local(&var)),
+                iterable: self.rewrite_expr(&iterable),
+                body: self.rewrite_nested_block(&body),
             },
             Statement::While { cond, body } => Statement::While {
-                cond: self.rewrite_expr(cond),
-                body: self.rewrite_nested_block(body),
+                cond: self.rewrite_expr(&cond),
+                body: self.rewrite_nested_block(&body),
             },
-            Statement::Block(block) => Statement::Block(self.rewrite_nested_block(block)),
+            Statement::Block(block) => Statement::Block(self.rewrite_nested_block(&block)),
             Statement::Try {
                 body,
                 handlers,
                 else_block,
                 finally_block,
             } => Statement::Try {
-                body: self.rewrite_nested_block(body),
+                body: self.rewrite_nested_block(&body),
                 handlers: handlers
-                    .iter()
+                    .into_iter()
                     .map(|handler| {
-                        let mut new_handler = handler.clone();
-                        new_handler.body = self.rewrite_nested_block(&handler.body);
-                        new_handler
+                        handler.map(|mut handler| {
+                            handler.body = self.rewrite_nested_block(&handler.body);
+                            handler
+                        })
                     })
                     .collect(),
                 else_block: else_block
@@ -916,34 +933,31 @@ impl InlineBuilder {
                     .map(|block| self.rewrite_nested_block(block)),
             },
             other => other.clone(),
-        }
+        })
     }
 
-    fn rewrite_nested_block(&mut self, block: &Block) -> Block {
-        let mut statements = Vec::with_capacity(block.statements.len());
-        for stmt in &block.statements {
+    fn rewrite_nested_block(&mut self, block: &Node<Block>) -> Node<Block> {
+        let mut statements = Vec::with_capacity(block.as_ref().statements.len());
+        for stmt in &block.as_ref().statements {
             statements.push(self.rewrite_statement(stmt));
         }
-        Block { statements }
+        Node::new(Block { statements }, *block.span())
     }
 
-    fn rewrite_expr(&mut self, expr: &Expr) -> Expr {
-        match expr {
-            Expr::Identifier { name, span } => Expr::Identifier {
-                name: self.names.resolve_or_clone(name),
-                span: *span,
-            },
+    fn rewrite_expr(&mut self, expr: &Node<Expr>) -> Node<Expr> {
+        expr.clone().map(|expr| match expr {
+            Expr::Identifier(name) => Expr::Identifier(self.names.resolve_or_clone(&name)),
             Expr::Binary { op, left, right } => Expr::Binary {
-                op: *op,
-                left: Box::new(self.rewrite_expr(left)),
-                right: Box::new(self.rewrite_expr(right)),
+                op,
+                left: Box::new(self.rewrite_expr(&left)),
+                right: Box::new(self.rewrite_expr(&right)),
             },
             Expr::Unary { op, expr } => Expr::Unary {
-                op: *op,
-                expr: Box::new(self.rewrite_expr(expr)),
+                op,
+                expr: Box::new(self.rewrite_expr(&expr)),
             },
             Expr::Call { func, args } => Expr::Call {
-                func: Box::new(self.rewrite_expr(func)),
+                func: Box::new(self.rewrite_expr(&func)),
                 args: args.iter().map(|arg| self.rewrite_expr(arg)).collect(),
             },
             Expr::If {
@@ -951,20 +965,22 @@ impl InlineBuilder {
                 then_branch,
                 else_branch,
             } => Expr::If {
-                cond: Box::new(self.rewrite_expr(cond)),
-                then_branch: Box::new(self.rewrite_expr(then_branch)),
+                cond: Box::new(self.rewrite_expr(&cond)),
+                then_branch: Box::new(self.rewrite_expr(&then_branch)),
                 else_branch: else_branch
                     .as_ref()
                     .map(|branch| Box::new(self.rewrite_expr(branch))),
             },
             Expr::Match { value, arms } => Expr::Match {
-                value: Box::new(self.rewrite_expr(value)),
+                value: Box::new(self.rewrite_expr(&value)),
                 arms: arms
-                    .iter()
-                    .map(|arm| MatchArm {
-                        pattern: self.rewrite_pattern(&arm.pattern),
-                        guard: arm.guard.as_ref().map(|g| self.rewrite_expr(g)),
-                        body: self.rewrite_expr(&arm.body),
+                    .into_iter()
+                    .map(|arm| {
+                        arm.map(|arm| MatchArm {
+                            pattern: self.rewrite_pattern(&arm.pattern),
+                            guard: arm.guard.as_ref().map(|g| self.rewrite_expr(g)),
+                            body: self.rewrite_expr(&arm.body),
+                        })
                     })
                     .collect(),
             },
@@ -986,9 +1002,9 @@ impl InlineBuilder {
                 iterable,
                 condition,
             } => Expr::ListComprehension {
-                element: Box::new(self.rewrite_expr(element)),
-                var: self.names.rename_local(var),
-                iterable: Box::new(self.rewrite_expr(iterable)),
+                element: Box::new(self.rewrite_expr(&element)),
+                var: self.names.rename_local(&var),
+                iterable: Box::new(self.rewrite_expr(&iterable)),
                 condition: condition
                     .as_ref()
                     .map(|cond| Box::new(self.rewrite_expr(cond))),
@@ -1000,22 +1016,22 @@ impl InlineBuilder {
                 iterable,
                 condition,
             } => Expr::DictComprehension {
-                key: Box::new(self.rewrite_expr(key)),
-                value: Box::new(self.rewrite_expr(value)),
-                var: self.names.rename_local(var),
-                iterable: Box::new(self.rewrite_expr(iterable)),
+                key: Box::new(self.rewrite_expr(&key)),
+                value: Box::new(self.rewrite_expr(&value)),
+                var: self.names.rename_local(&var),
+                iterable: Box::new(self.rewrite_expr(&iterable)),
                 condition: condition
                     .as_ref()
                     .map(|cond| Box::new(self.rewrite_expr(cond))),
             },
             Expr::FString { parts } => Expr::FString {
                 parts: parts
-                    .iter()
-                    .map(|part| match part {
-                        FStringPart::Expr(expr) => {
-                            FStringPart::Expr(Box::new(self.rewrite_expr(expr)))
-                        }
-                        FStringPart::Text(text) => FStringPart::Text(text.clone()),
+                    .into_iter()
+                    .map(|part| {
+                        part.map(|part| match part {
+                            FStringPart::Expr(expr) => FStringPart::Expr(self.rewrite_expr(&expr)),
+                            FStringPart::Text(text) => FStringPart::Text(text.clone()),
+                        })
                     })
                     .collect(),
             },
@@ -1026,10 +1042,10 @@ impl InlineBuilder {
             } => Expr::Lambda {
                 params: params.clone(),
                 ret_ty: ret_ty.clone(),
-                body: self.rewrite_nested_block(body),
+                body: self.rewrite_nested_block(&body),
             },
-            Expr::Spawn(expr) => Expr::Spawn(Box::new(self.rewrite_expr(expr))),
-            Expr::Await(expr) => Expr::Await(Box::new(self.rewrite_expr(expr))),
+            Expr::Spawn(expr) => Expr::Spawn(Box::new(self.rewrite_expr(&expr))),
+            Expr::Await(expr) => Expr::Await(Box::new(self.rewrite_expr(&expr))),
             Expr::Struct { name, fields } => Expr::Struct {
                 name: name.clone(),
                 fields: fields
@@ -1038,28 +1054,25 @@ impl InlineBuilder {
                     .collect(),
             },
             _ => expr.clone(),
-        }
+        })
     }
 
-    fn rewrite_pattern(&mut self, pattern: &Pattern) -> Pattern {
-        match pattern {
-            Pattern::Identifier(name) => Pattern::Identifier(self.names.rename_local(name)),
+    fn rewrite_pattern(&mut self, pattern: &Node<Pattern>) -> Node<Pattern> {
+        pattern.clone().map(|pattern| match pattern {
+            Pattern::Identifier(name) => Pattern::Identifier(self.names.rename_local(&name)),
             Pattern::Struct { name, fields } => Pattern::Struct {
                 name: name.clone(),
                 fields: fields
-                    .iter()
+                    .into_iter()
                     .map(|(field, pat)| {
-                        (
-                            field.clone(),
-                            pat.as_ref().map(|inner| self.rewrite_pattern(inner)),
-                        )
+                        (field.clone(), pat.map(|inner| self.rewrite_pattern(&inner)))
                     })
                     .collect(),
             },
             Pattern::Array { patterns, rest } => Pattern::Array {
                 patterns: patterns
-                    .iter()
-                    .map(|pat| self.rewrite_pattern(pat))
+                    .into_iter()
+                    .map(|pat| self.rewrite_pattern(&pat))
                     .collect(),
                 rest: rest.as_ref().map(|name| self.names.rename_local(name)),
             },
@@ -1070,16 +1083,19 @@ impl InlineBuilder {
             } => Pattern::EnumVariant {
                 enum_name: enum_name.clone(),
                 variant: variant.clone(),
-                fields: fields.iter().map(|pat| self.rewrite_pattern(pat)).collect(),
+                fields: fields
+                    .into_iter()
+                    .map(|pat| self.rewrite_pattern(&pat))
+                    .collect(),
             },
             _ => pattern.clone(),
-        }
+        })
     }
 }
 
 struct InlineBody {
-    statements: Vec<Statement>,
-    return_expr: Option<Expr>,
+    statements: Vec<Node<Statement>>,
+    return_expr: Option<Node<Expr>>,
 }
 
 struct InlineNameGenerator {

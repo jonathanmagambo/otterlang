@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::resolver::ModuleResolver;
-use ast::nodes::Program;
+use ast::nodes::{Program, Statement};
 use lexer::tokenize;
 use parser::parse;
 
@@ -112,28 +112,28 @@ impl ModuleLoader {
         let mut exports = ModuleExports::new();
 
         for statement in &program.statements {
-            match statement {
-                ast::nodes::Statement::Function(function) => {
-                    if function.public {
-                        exports.add_function(function.name.clone());
+            match statement.as_ref() {
+                Statement::Function(function) => {
+                    if function.as_ref().public {
+                        exports.add_function(function.as_ref().name.clone());
                     }
                 }
-                ast::nodes::Statement::Let { name, public, .. } => {
+                Statement::Let { name, public, .. } => {
                     if *public {
-                        exports.add_constant(name.clone());
+                        exports.add_constant(name.as_ref().clone());
                     }
                 }
-                ast::nodes::Statement::Struct { name, public, .. } => {
-                    if *public {
-                        exports.add_type(name.clone());
-                    }
-                }
-                ast::nodes::Statement::Enum { name, public, .. } => {
+                Statement::Struct { name, public, .. } => {
                     if *public {
                         exports.add_type(name.clone());
                     }
                 }
-                ast::nodes::Statement::TypeAlias { name, public, .. } => {
+                Statement::Enum { name, public, .. } => {
+                    if *public {
+                        exports.add_type(name.clone());
+                    }
+                }
+                Statement::TypeAlias { name, public, .. } => {
                     if *public {
                         exports.add_type(name.clone());
                     }
@@ -152,14 +152,14 @@ impl ModuleLoader {
         module: &mut Module,
         all_modules: &HashMap<PathBuf, Module>,
     ) -> Result<()> {
-        use ast::nodes::Statement;
+        use Statement;
 
         for statement in &module.program.statements {
             if let Statement::PubUse {
                 module: source_module,
                 item,
                 alias,
-            } = statement
+            } = statement.as_ref()
             {
                 // Resolve the source module path
                 let source_path = self.resolver.resolve(source_module)?;

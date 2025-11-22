@@ -2,8 +2,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use anyhow::{anyhow, bail, Result};
-use ast::nodes::{BinaryOp, Block, Expr, Function, Literal, Program, Statement, Type};
+use anyhow::{Result, anyhow, bail};
+use ast::nodes::{
+    BinaryOp, Block, Expr, FStringPart, Function, Literal, Node, NumberLiteral, Pattern, Program,
+    Statement, Type,
+};
+use common::Span;
 use inkwell::AddressSpace;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -168,8 +172,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let functions: Vec<&Function> = program
             .statements
             .iter()
-            .filter_map(|stmt| match stmt {
-                Statement::Function(func) => Some(func),
+            .filter_map(|stmt| match stmt.as_ref() {
+                Statement::Function(func) => Some(func.as_ref()),
                 _ => None,
             })
             .collect();
@@ -179,10 +183,15 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             let defaults = function
                 .params
                 .iter()
-                .map(|param| param.default.clone())
+                .map(|param| param.as_ref().default.clone())
                 .collect::<Vec<_>>();
-            self.function_defaults
-                .insert(function.name.clone(), defaults);
+            self.function_defaults.insert(
+                function.name.clone(),
+                defaults
+                    .iter()
+                    .map(|d| d.as_ref().map(|d| d.as_ref().clone()))
+                    .collect(),
+            );
         }
 
         if functions.is_empty() {
@@ -210,8 +219,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         // Determine parameter types
         let mut param_types = vec![];
         for param in &function.params {
-            let ty = if let Some(ty) = &param.ty {
-                self.type_from_ast(ty)?
+            let ty = if let Some(ty) = &param.as_ref().ty {
+                self.type_from_ast(ty.as_ref())?
             } else {
                 OtterType::F64 // Default to f64 if no type specified
             };
@@ -220,7 +229,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
         // Determine return type
         let ret_type = if let Some(ret_ty) = &function.ret_ty {
-            self.type_from_ast(ret_ty)?
+            self.type_from_ast(ret_ty.as_ref())?
         } else {
             OtterType::I32 // Default to i32 for compatibility
         };
@@ -282,20 +291,20 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 )
             })?;
 
-            let param_ty = if let Some(ty) = &param.ty {
-                self.type_from_ast(ty)?
+            let param_ty = if let Some(ty) = &param.as_ref().ty {
+                self.type_from_ast(ty.as_ref())?
             } else {
                 OtterType::F64
             };
 
             let alloca = self
                 .builder
-                .build_alloca(self.basic_type(param_ty)?, &param.name)?;
+                .build_alloca(self.basic_type(param_ty)?, param.as_ref().name.as_ref())?;
             self.builder
                 .build_store(alloca, param_value)
                 .expect("store function parameter");
             ctx.insert(
-                param.name.clone(),
+                param.as_ref().name.as_ref().clone(),
                 Variable {
                     ptr: alloca,
                     ty: param_ty,
@@ -303,8 +312,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             );
         }
 
-        for statement in &function.body.statements {
-            self.lower_statement(statement, llvm_fn, &mut ctx)?;
+        for statement in &function.body.as_ref().statements {
+            self.lower_statement(statement.as_ref(), llvm_fn, &mut ctx)?;
         }
 
         // Add default return if needed
@@ -315,7 +324,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             .is_none()
         {
             let ret_type = if let Some(ret_ty) = &function.ret_ty {
-                self.type_from_ast(ret_ty)?
+                self.type_from_ast(ret_ty.as_ref())?
             } else {
                 OtterType::I32
             };
@@ -401,7 +410,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         match statement {
             Statement::Expr(expr) => {
                 // Just evaluate the expression (e.g., function calls like print())
-                self.eval_expr(expr, ctx)?;
+                self.eval_expr(expr.as_ref(), ctx)?;
                 Ok(())
             }
             Statement::Let {
@@ -411,7 +420,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 public: _,
                 ..
             } => {
-                let evaluated = self.eval_expr(expr, ctx)?;
+                let evaluated = self.eval_expr(expr.as_ref(), ctx)?;
                 if evaluated.ty == OtterType::Unit {
                     bail!("cannot declare variable `{name}` with unit value");
                 }
@@ -421,7 +430,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .ok_or_else(|| anyhow!("expected value for `{name}`"))?;
 
                 // Check if variable already exists (reassignment)
-                let (alloca, needs_coercion) = if let Some(existing_var) = ctx.get(name) {
+                let (alloca, needs_coercion) = if let Some(existing_var) = ctx.get(name.as_ref()) {
                     // Variable exists - reuse its alloca and handle type coercion
                     let mut eval = evaluated;
                     match (existing_var.ty, eval.ty) {
@@ -478,14 +487,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     } else {
                         self.builder.position_at_end(entry_block);
                     }
-                    let alloca = self.builder.build_alloca(ty, name)?;
+                    let alloca = self.builder.build_alloca(ty, name.as_ref())?;
 
                     if let Some(block) = current_block {
                         self.builder.position_at_end(block);
                     }
 
                     ctx.insert(
-                        name.clone(),
+                        name.as_ref().clone(),
                         Variable {
                             ptr: alloca,
                             ty: evaluated.ty,
@@ -507,8 +516,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             } => self.lower_if_statement(
                 _function,
                 ctx,
-                cond,
-                then_block,
+                cond.as_ref(),
+                then_block.as_ref(),
                 elif_blocks,
                 else_block.as_ref(),
             ),
@@ -518,9 +527,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 body,
                 ..
             } => {
-                if let Expr::Range { start, end } = iterable {
-                    let start_val = self.eval_expr(start, ctx)?;
-                    let end_val = self.eval_expr(end, ctx)?;
+                if let Expr::Range { start, end } = iterable.as_ref() {
+                    let start_val = self.eval_expr(start.as_ref().as_ref(), ctx)?;
+                    let end_val = self.eval_expr(end.as_ref().as_ref(), ctx)?;
 
                     // Support both int and float ranges, coercing int to float if needed
                     let (start_num, end_num, loop_ty, is_float): (
@@ -600,12 +609,12 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                     // Allocate loop variable
                     let loop_var_type = self.basic_type(loop_ty)?;
-                    let loop_var_ptr = self.builder.build_alloca(loop_var_type, var)?;
+                    let loop_var_ptr = self.builder.build_alloca(loop_var_type, var.as_ref())?;
                     self.builder
                         .build_store(loop_var_ptr, start_num)
                         .expect("initialize loop var");
                     ctx.insert(
-                        var.clone(),
+                        var.as_ref().clone(),
                         Variable {
                             ptr: loop_var_ptr,
                             ty: loop_ty,
@@ -644,8 +653,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                     // Loop body
                     self.builder.position_at_end(loop_body);
-                    for stmt in &body.statements {
-                        self.lower_statement(stmt, _function, ctx)?;
+                    for stmt in &body.as_ref().statements {
+                        self.lower_statement(stmt.as_ref(), _function, ctx)?;
                     }
 
                     // Increment loop variable
@@ -680,7 +689,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     bail!("for loops currently only support range expressions");
                 }
             }
-            Statement::While { cond, body } => self.lower_while_loop(_function, ctx, cond, body),
+            Statement::While { cond, body } => {
+                self.lower_while_loop(_function, ctx, cond.as_ref(), body.as_ref())
+            }
             Statement::Break => {
                 if let Some(loop_ctx) = ctx.current_loop() {
                     self.builder
@@ -723,14 +734,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 Ok(())
             }
             Statement::Block(block) => {
-                for stmt in &block.statements {
-                    self.lower_statement(stmt, _function, ctx)?;
+                for stmt in &block.as_ref().statements {
+                    self.lower_statement(stmt.as_ref(), _function, ctx)?;
                 }
                 Ok(())
             }
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
-                    let evaluated = self.eval_expr(expr, ctx)?;
+                    let evaluated = self.eval_expr(expr.as_ref(), ctx)?;
 
                     // Get the function's return type
                     let function_ret_type =
@@ -820,12 +831,12 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 Ok(())
             }
             Statement::Assignment { name, expr, .. } => {
-                let evaluated = self.eval_expr(expr, ctx)?;
+                let evaluated = self.eval_expr(expr.as_ref(), ctx)?;
                 if evaluated.ty == OtterType::Unit {
                     bail!("cannot assign unit value to `{name}`");
                 }
 
-                let (ptr, evaluated) = if let Some(variable) = ctx.get(name) {
+                let (ptr, evaluated) = if let Some(variable) = ctx.get(name.as_ref()) {
                     // Variable exists - use its existing alloca
                     // Allow type coercions in assignment
                     let mut eval = evaluated;
@@ -929,8 +940,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                 // Execute try body
                 self.builder.position_at_end(try_bb);
-                for stmt in &body.statements {
-                    self.lower_statement(stmt, _function, ctx)?;
+                for stmt in &body.as_ref().statements {
+                    self.lower_statement(stmt.as_ref(), _function, ctx)?;
                 }
 
                 if let Some(current_block) = self.builder.get_insert_block()
@@ -977,14 +988,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     self.builder.position_at_end(handler_bbs[i]);
 
                     // Check exception type matching (for logging/warnings only for now)
-                    if let Some(exception_type) = &handler.exception {
+                    if let Some(exception_type) = &handler.as_ref().exception {
                         // This call is mainly for side effects (warnings) - in a full implementation
                         // we'd use the result for branching
-                        let _ = self.exception_type_matches(exception_type, ctx)?;
+                        let _ = self.exception_type_matches(exception_type.as_ref(), ctx)?;
                     }
 
                     // Bind exception to variable if alias is provided
-                    if let Some(alias) = &handler.alias {
+                    if let Some(alias) = &handler.as_ref().alias {
                         // Get error message and bind to variable
                         let get_message_fn = self.declare_symbol_function("runtime.get_message")?;
                         let message_call =
@@ -1011,8 +1022,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     }
 
                     // Execute handler body
-                    for stmt in &handler.body.statements {
-                        self.lower_statement(stmt, _function, ctx)?;
+                    for stmt in &handler.as_ref().body.as_ref().statements {
+                        self.lower_statement(stmt.as_ref(), _function, ctx)?;
                     }
 
                     // Clear error and jump to finally/end only if current block has no terminator
@@ -1034,8 +1045,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 if let Some(else_block) = else_block {
                     let else_bb_val = else_bb.unwrap();
                     self.builder.position_at_end(else_bb_val);
-                    for stmt in &else_block.statements {
-                        self.lower_statement(stmt, _function, ctx)?;
+                    for stmt in &else_block.as_ref().statements {
+                        self.lower_statement(stmt.as_ref(), _function, ctx)?;
                     }
                     if let Some(current_block) = self.builder.get_insert_block()
                         && current_block.get_terminator().is_none()
@@ -1049,8 +1060,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 if let Some(finally_block) = finally_block {
                     let finally_bb_val = finally_bb.unwrap();
                     self.builder.position_at_end(finally_bb_val);
-                    for stmt in &finally_block.statements {
-                        self.lower_statement(stmt, _function, ctx)?;
+                    for stmt in &finally_block.as_ref().statements {
+                        self.lower_statement(stmt.as_ref(), _function, ctx)?;
                     }
                     if let Some(current_block) = self.builder.get_insert_block()
                         && current_block.get_terminator().is_none()
@@ -1077,7 +1088,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             Statement::Raise(expr) => {
                 match expr {
                     Some(expr) => {
-                        let error_value = self.eval_expr(expr, ctx)?;
+                        let error_value = self.eval_expr(expr.as_ref(), ctx)?;
 
                         match error_value.ty {
                             OtterType::Str => {
@@ -1215,21 +1226,32 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         match expr {
-            Expr::Literal(literal) => self.eval_literal(literal),
-            Expr::Identifier { name, .. } => self.eval_identifier(name, ctx),
-            Expr::Binary { left, op, right } => self.eval_binary_expr(left, op, right, ctx),
-            Expr::Call { func, args } => self.eval_call(func, args, ctx),
-            Expr::Unary { op, expr } => self.eval_unary_expr(op, expr, ctx),
+            Expr::Literal(literal) => self.eval_literal(literal.as_ref()),
+            Expr::Identifier(name) => self.eval_identifier(name, ctx),
+            Expr::Binary { left, op, right } => {
+                self.eval_binary_expr(left.as_ref().as_ref(), op, right.as_ref().as_ref(), ctx)
+            }
+            Expr::Call { func, args } => self.eval_call(func.as_ref().as_ref(), args, ctx),
+            Expr::Unary { op, expr } => self.eval_unary_expr(op, expr.as_ref().as_ref(), ctx),
             Expr::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => self.eval_if_expr(cond, then_branch, else_branch.as_deref(), ctx),
+            } => self.eval_if_expr(
+                cond.as_ref().as_ref(),
+                then_branch.as_ref().as_ref(),
+                else_branch
+                    .as_ref()
+                    .map(|node| node.as_ref().as_ref()),
+                ctx,
+            ),
             Expr::Range { .. } => bail!("Range expressions can only be used in for loops"),
             Expr::FString { parts } => self.eval_fstring(parts, ctx),
-            Expr::Member { object, field } => self.eval_member_access(object, field, ctx),
-            Expr::Await(expr) => self.lower_await(expr, ctx),
-            Expr::Spawn(expr) => self.lower_spawn(expr, ctx),
+            Expr::Member { object, field } => {
+                self.eval_member_access(object.as_ref().as_ref(), field, ctx)
+            }
+            Expr::Await(expr) => self.lower_await(expr.as_ref().as_ref(), ctx),
+            Expr::Spawn(expr) => self.lower_spawn(expr.as_ref().as_ref(), ctx),
             Expr::Lambda {
                 params: _,
                 ret_ty: _,
@@ -1263,8 +1285,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 let mut lambda_ctx = ctx.clone();
 
                 // Lower the lambda body statements
-                for statement in &body.statements {
-                    self.lower_statement(statement, lambda_function, &mut lambda_ctx)?;
+                for statement in &body.as_ref().statements {
+                    self.lower_statement(statement.as_ref(), lambda_function, &mut lambda_ctx)?;
                 }
 
                 // Ensure the function returns (add return if not present)
@@ -1293,7 +1315,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 })
             }
             Expr::Match { value, arms } => {
-                let match_value = self.eval_expr(value, ctx)?;
+                let match_value = self.eval_expr(value.as_ref().as_ref(), ctx)?;
 
                 // Create basic blocks for each arm plus end block
                 let current_function = self
@@ -1324,8 +1346,13 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     self.builder.position_at_end(temp_bb);
 
                     let mut test_ctx = ctx.clone();
-                    self.bind_pattern_variables(&first_arm.pattern, &match_value, &mut test_ctx)?;
-                    let test_result = self.eval_expr(&first_arm.body, &mut test_ctx)?;
+                    self.bind_pattern_variables(
+                        first_arm.as_ref().pattern.as_ref(),
+                        &match_value,
+                        &mut test_ctx,
+                    )?;
+                    let test_result =
+                        self.eval_expr(first_arm.as_ref().body.as_ref(), &mut test_ctx)?;
 
                     self.builder
                         .build_unreachable()
@@ -1360,7 +1387,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     self.builder.position_at_end(next_check_bb);
 
                     // Check if this pattern matches
-                    let pattern_matches = self.pattern_matches(&arm.pattern, &match_value, ctx)?;
+                    let pattern_matches =
+                        self.pattern_matches(arm.as_ref().pattern.as_ref(), &match_value, ctx)?;
 
                     // Create next check block for next arm (or no_match if this is the last)
                     next_check_bb = if arm_idx < arms.len() - 1 {
@@ -1384,10 +1412,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                     // Bind pattern variables in new context
                     let mut arm_ctx = ctx.clone();
-                    self.bind_pattern_variables(&arm.pattern, &match_value, &mut arm_ctx)?;
+                    self.bind_pattern_variables(
+                        arm.as_ref().pattern.as_ref(),
+                        &match_value,
+                        &mut arm_ctx,
+                    )?;
 
                     // Evaluate arm body
-                    let arm_result = self.eval_expr(&arm.body, &mut arm_ctx)?;
+                    let arm_result = self.eval_expr(arm.as_ref().body.as_ref(), &mut arm_ctx)?;
 
                     // Store result
                     if let Some(alloca) = result_alloca
@@ -1433,7 +1465,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .into_int_value();
 
                 for element_expr in elements {
-                    let element_value = self.eval_expr(element_expr, ctx)?;
+                    let element_value = self.eval_expr(element_expr.as_ref(), ctx)?;
                     self.append_list_element(handle_value, element_value)?;
                 }
 
@@ -1452,8 +1484,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     .into_int_value();
 
                 for (key_expr, value_expr) in entries.iter() {
-                    let key_value = self.eval_expr(key_expr, ctx)?;
-                    let value_value = self.eval_expr(value_expr, ctx)?;
+                    let key_value = self.eval_expr(key_expr.as_ref(), ctx)?;
+                    let value_value = self.eval_expr(value_expr.as_ref(), ctx)?;
                     self.set_map_entry(handle_value, key_value, value_value)?;
                 }
 
@@ -1467,14 +1499,27 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 var,
                 iterable,
                 condition,
-            } => self.lower_list_comprehension(element, var, iterable, condition, ctx),
+            } => self.lower_list_comprehension(
+                element.as_ref().as_ref(),
+                var,
+                iterable.as_ref().as_ref(),
+                condition,
+                ctx,
+            ),
             Expr::DictComprehension {
                 key,
                 value,
                 var,
                 iterable,
                 condition,
-            } => self.lower_dict_comprehension(key, value, var, iterable, condition, ctx),
+            } => self.lower_dict_comprehension(
+                key.as_ref().as_ref(),
+                value.as_ref().as_ref(),
+                var,
+                iterable.as_ref().as_ref(),
+                condition,
+                ctx,
+            ),
             Expr::Struct { name, fields } => {
                 // Struct instantiation - basic implementation
                 // For now, we create a map-like structure to store field values
@@ -1491,7 +1536,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                 // Store field values in the map
                 for (field_name, field_expr) in fields {
-                    let field_value = self.eval_expr(field_expr, ctx)?;
+                    let field_value = self.eval_expr(field_expr.as_ref(), ctx)?;
 
                     // Convert field name to string
                     let field_name_str = self
@@ -2058,11 +2103,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         field: &str,
         _ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
-        if let Expr::Identifier {
-            name: enum_or_module_name,
-            ..
-        } = object
-        {
+        if let Expr::Identifier(enum_or_module_name) = object {
             // Check if this is an enum constructor (for no-arg variants like Option.None)
             if (enum_or_module_name == "Option" || enum_or_module_name == "Result")
                 && self
@@ -2170,22 +2211,22 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
     fn eval_call(
         &mut self,
         callee: &Expr,
-        args: &[Expr],
+        args: &[Node<Expr>],
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         let (symbol_name, actual_args) = match callee {
-            Expr::Identifier { name, .. } => (Some(name.clone()), args.to_vec()),
+            Expr::Identifier(name) => (Some(name.clone()), args.to_vec()),
             Expr::Member { object, field } => {
-                if let Expr::Identifier { name: module, .. } = object.as_ref() {
+                if let Expr::Identifier(module) = object.as_ref().as_ref() {
                     (Some(format!("{module}.{field}")), args.to_vec())
                 } else {
                     let method_symbol = self
-                        .expr_type(object)
+                        .expr_type(object.as_ref().as_ref())
                         .and_then(|ty| self.method_symbol_for_type(ty, field))
                         .ok_or_else(|| {
                             anyhow!(
                                 "cannot resolve method `{field}` for expression of type `{}`",
-                                self.expr_type(object)
+                                self.expr_type(object.as_ref().as_ref())
                                     .map(|t| t.display_name())
                                     .unwrap_or_else(|| "unknown".to_string())
                             )
@@ -2206,9 +2247,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
         if let Some(symbol_name) = symbol_name {
             if let Expr::Member { object, field } = callee
-                && let Expr::Identifier {
-                    name: enum_name, ..
-                } = object.as_ref()
+                && let Expr::Identifier(enum_name) = object.as_ref().as_ref()
                 && (enum_name == "Option" || enum_name == "Result")
                 && self.symbol_registry.resolve(&symbol_name).is_none()
             {
@@ -2223,7 +2262,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     None
                 } else if actual_args.len() == 1 {
                     // Single argument - evaluate and convert to i64
-                    let arg_value = self.eval_expr(&actual_args[0], ctx)?;
+                    let arg_value = self.eval_expr(actual_args[0].as_ref(), ctx)?;
                     let payload_i64 = match arg_value.ty {
                         OtterType::I64 => arg_value
                             .value
@@ -2317,7 +2356,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 let mut lowered_args = Vec::with_capacity(actual_args.len());
 
                 for (expr, expected) in actual_args.iter().zip(symbol.signature.params.iter()) {
-                    let mut value = self.eval_expr(expr, ctx)?;
+                    let mut value = self.eval_expr(expr.as_ref(), ctx)?;
                     let expected_ty: OtterType = expected.clone().into();
                     if value.ty != expected_ty {
                         match (expected_ty, value.ty) {
@@ -2446,14 +2485,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 });
             }
 
-            if let Expr::Identifier { name, .. } = callee {
+            if let Expr::Identifier(name) = callee {
                 return self.call_user_defined_function(name, args, ctx);
             }
 
             bail!("unknown function `{symbol_name}`");
         }
 
-        if let Expr::Identifier { name, .. } = callee {
+        if let Expr::Identifier(name) = callee {
             return self.call_user_defined_function(name, args, ctx);
         }
 
@@ -2466,18 +2505,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         if let Expr::Call { func, args } = expr
-            && let Some(base) = self.call_base_name(func)
+            && let Some(base) = self.call_base_name(func.as_ref().as_ref())
         {
             let spawn_name = format!("{}_spawn", base);
             if self.symbol_registry.contains(&spawn_name) {
-                return self.eval_call(
-                    &Expr::Identifier {
-                        name: spawn_name,
-                        span: None,
-                    },
-                    args,
-                    ctx,
-                );
+                return self.eval_call(&Expr::Identifier(spawn_name), args, ctx);
             }
         }
         // Fallback: evaluate inner expression
@@ -2490,7 +2522,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         if let Expr::Call { func, args } = expr
-            && let Some(base) = self.call_base_name(func)
+            && let Some(base) = self.call_base_name(func.as_ref().as_ref())
         {
             let spawn_name = format!("{}_spawn", base);
             let await_name = format!("{}_await", base);
@@ -2498,24 +2530,18 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                 && self.symbol_registry.contains(&await_name)
             {
                 // First call spawn(...)
-                let spawn_val = self.eval_call(
-                    &Expr::Identifier {
-                        name: spawn_name,
-                        span: None,
-                    },
-                    args,
-                    ctx,
-                )?;
+                let spawn_val = self.eval_call(&Expr::Identifier(spawn_name), args, ctx)?;
                 // Then call await(handle)
                 return self
                     .eval_call(
-                        &Expr::Identifier {
-                            name: await_name,
-                            span: None,
-                        },
-                        &[Expr::Literal(ast::nodes::Literal::Number(
-                            ast::nodes::NumberLiteral::new(0.0, true),
-                        ))],
+                        &Expr::Identifier(await_name),
+                        &[Node::new(
+                            Expr::Literal(Node::new(
+                                Literal::Number(NumberLiteral::new(0.0, true)),
+                                Span::new(0, 0),
+                            )),
+                            Span::new(0, 0),
+                        )],
                         ctx,
                     )
                     .and_then(|_| {
@@ -2547,9 +2573,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
     fn call_base_name(&self, callee: &Expr) -> Option<String> {
         match callee {
-            Expr::Identifier { name, .. } => Some(name.clone()),
+            Expr::Identifier(name) => Some(name.clone()),
             Expr::Member { object, field } => {
-                if let Expr::Identifier { name: module, .. } = object.as_ref() {
+                if let Expr::Identifier(module) = object.as_ref().as_ref() {
                     Some(format!("{module}.{field}"))
                 } else {
                     None
@@ -2562,14 +2588,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
     fn call_user_defined_function(
         &mut self,
         name: &str,
-        args: &[Expr],
+        args: &[Node<Expr>],
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         if let Some(function) = self.module.get_function(name) {
             let fn_type = function.get_type();
             let param_types = fn_type.get_param_types();
 
-            let mut arg_exprs: Vec<Expr> = args.to_vec();
+            let mut arg_exprs: Vec<Expr> = args.iter().map(|node| node.as_ref().clone()).collect();
 
             if let Some(defaults) = self.function_defaults.get(name) {
                 let total_params = defaults.len();
@@ -3093,7 +3119,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         element: &Expr,
         var: &str,
         iterable: &Expr,
-        condition: &Option<Box<Expr>>,
+        condition: &Option<Box<Node<Expr>>>,
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         let iterable_value = self.eval_expr(iterable, ctx)?;
@@ -3210,7 +3236,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         }
 
         if let Some(cond_expr) = condition {
-            let cond_value = self.eval_expr(cond_expr, ctx)?;
+            let cond_value = self.eval_expr(cond_expr.as_ref().as_ref(), ctx)?;
             let cond_bool = self.to_bool_value(cond_value)?;
             let append_block = append_bb.expect("append block missing");
             self.builder
@@ -3262,7 +3288,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         value: &Expr,
         var: &str,
         iterable: &Expr,
-        condition: &Option<Box<Expr>>,
+        condition: &Option<Box<Node<Expr>>>,
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
         let iterable_value = self.eval_expr(iterable, ctx)?;
@@ -3379,7 +3405,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         }
 
         if let Some(cond_expr) = condition {
-            let cond_value = self.eval_expr(cond_expr, ctx)?;
+            let cond_value = self.eval_expr(cond_expr.as_ref().as_ref(), ctx)?;
             let cond_bool = self.to_bool_value(cond_value)?;
             let append_block = append_bb.expect("append block missing");
             self.builder
@@ -3532,11 +3558,9 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
     fn eval_fstring(
         &mut self,
-        parts: &[ast::nodes::FStringPart],
+        parts: &[Node<FStringPart>],
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<EvaluatedValue<'ctx>> {
-        use ast::nodes::FStringPart;
-
         // Declare/get helper functions
         let format_float_fn = self
             .declare_or_get_format_function("otter_format_float", self.context.f64_type().into());
@@ -3555,7 +3579,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         let mut need_free_result = false;
 
         for (idx, part) in parts.iter().enumerate() {
-            match part {
+            match part.as_ref() {
                 FStringPart::Text(text) => {
                     let text_ptr = self
                         .builder
@@ -3584,7 +3608,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     need_free_result = true;
                 }
                 FStringPart::Expr(expr) => {
-                    let evaluated = self.eval_expr(expr, ctx)?;
+                    let evaluated = self.eval_expr(expr.as_ref(), ctx)?;
 
                     // Format the value based on its type
                     let formatted_ptr = match evaluated.ty {
@@ -3793,7 +3817,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         // Generate loop body
         self.builder.position_at_end(body_bb);
         for stmt in &body.statements {
-            self.lower_statement(stmt, function, ctx)?;
+            self.lower_statement(stmt.as_ref(), function, ctx)?;
         }
 
         // Jump back to condition check if no terminator
@@ -3822,8 +3846,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         ctx: &mut FunctionContext<'ctx>,
         cond: &Expr,
         then_block: &Block,
-        elif_blocks: &[(Expr, Block)],
-        else_block: Option<&Block>,
+        elif_blocks: &[(Node<Expr>, Node<Block>)],
+        else_block: Option<&Node<Block>>,
     ) -> Result<()> {
         // Evaluate the main condition
         let cond_value = self.eval_expr(cond, ctx)?;
@@ -3849,7 +3873,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         // Generate then block
         self.builder.position_at_end(then_bb);
         for stmt in &then_block.statements {
-            self.lower_statement(stmt, function, ctx)?;
+            self.lower_statement(stmt.as_ref(), function, ctx)?;
         }
         if self
             .builder
@@ -3874,7 +3898,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
             self.builder.position_at_end(elif_cond_bb);
 
-            let elif_cond_value = self.eval_expr(elif_cond, ctx)?;
+            let elif_cond_value = self.eval_expr(elif_cond.as_ref(), ctx)?;
             if elif_cond_value.ty != OtterType::Bool {
                 bail!(
                     "elif condition must be a boolean, got {:?}",
@@ -3893,8 +3917,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
             // Generate elif then block
             self.builder.position_at_end(elif_then_bb);
-            for stmt in &elif_block.statements {
-                self.lower_statement(stmt, function, ctx)?;
+            for stmt in &elif_block.as_ref().statements {
+                self.lower_statement(stmt.as_ref(), function, ctx)?;
             }
             if self
                 .builder
@@ -3913,8 +3937,8 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
         // Generate else block
         self.builder.position_at_end(current_else_bb);
         if let Some(else_block) = else_block {
-            for stmt in &else_block.statements {
-                self.lower_statement(stmt, function, ctx)?;
+            for stmt in &else_block.as_ref().statements {
+                self.lower_statement(stmt.as_ref(), function, ctx)?;
             }
         }
         if self
@@ -4004,25 +4028,25 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
     /// Check if a pattern matches a value, returning a boolean LLVM value
     fn pattern_matches(
         &mut self,
-        pattern: &ast::nodes::Pattern,
+        pattern: &Pattern,
         value: &EvaluatedValue<'ctx>,
         _ctx: &mut FunctionContext<'ctx>,
     ) -> Result<IntValue<'ctx>> {
         match pattern {
-            ast::nodes::Pattern::Wildcard => {
+            Pattern::Wildcard => {
                 // Wildcard always matches
                 Ok(self.context.bool_type().const_int(1, false))
             }
-            ast::nodes::Pattern::Identifier(_) => {
+            Pattern::Identifier(_) => {
                 // Identifier always matches (binds variable)
                 Ok(self.context.bool_type().const_int(1, false))
             }
-            ast::nodes::Pattern::Literal(lit) => {
+            Pattern::Literal(lit) => {
                 // Compare literal value with match value
-                let lit_value = self.eval_literal(lit)?;
+                let lit_value = self.eval_literal(lit.as_ref())?;
                 self.compare_values_for_equality(value, &lit_value)
             }
-            ast::nodes::Pattern::EnumVariant {
+            Pattern::EnumVariant {
                 enum_name,
                 variant,
                 fields: _,
@@ -4051,11 +4075,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     "compare_variant_tags",
                 )?)
             }
-            ast::nodes::Pattern::Struct { name, fields: _ } => {
+            Pattern::Struct { name, fields: _ } => {
                 warn!("Struct pattern matching not yet implemented for {}", name);
                 Ok(self.context.bool_type().const_int(0, false))
             }
-            ast::nodes::Pattern::Array {
+            Pattern::Array {
                 patterns: _,
                 rest: _,
             } => {
@@ -4068,15 +4092,15 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
     /// Bind pattern variables to values in the given context
     fn bind_pattern_variables(
         &mut self,
-        pattern: &ast::nodes::Pattern,
+        pattern: &Pattern,
         value: &EvaluatedValue<'ctx>,
         ctx: &mut FunctionContext<'ctx>,
     ) -> Result<()> {
         match pattern {
-            ast::nodes::Pattern::Wildcard => {
+            Pattern::Wildcard => {
                 // Nothing to bind
             }
-            ast::nodes::Pattern::Identifier(name) => {
+            Pattern::Identifier(name) => {
                 // Bind the entire value to the identifier
                 if let Some(value_val) = value.value {
                     let alloca = self
@@ -4092,10 +4116,10 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     );
                 }
             }
-            ast::nodes::Pattern::Literal(_) => {
+            Pattern::Literal(_) => {
                 // Literals don't bind variables
             }
-            ast::nodes::Pattern::EnumVariant {
+            Pattern::EnumVariant {
                 enum_name: _,
                 variant: _,
                 fields,
@@ -4109,7 +4133,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
 
                 // Bind payload to field patterns
                 if fields.len() == 1 {
-                    if let ast::nodes::Pattern::Identifier(name) = &fields[0] {
+                    if let Pattern::Identifier(name) = &fields[0].as_ref() {
                         let payload_ty = OtterType::Opaque;
                         let alloca = self
                             .builder
@@ -4122,14 +4146,14 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                                 ty: payload_ty,
                             },
                         );
-                    } else if let ast::nodes::Pattern::Wildcard = &fields[0] {
+                    } else if let Pattern::Wildcard = &fields[0].as_ref() {
                         // Wildcard - nothing to bind
                     }
                 } else if fields.is_empty() {
                     // No fields to bind (e.g., Option.None)
                 } else {
                     warn!("Multi-field enum variant binding not fully implemented");
-                    if let ast::nodes::Pattern::Identifier(name) = &fields[0] {
+                    if let Pattern::Identifier(name) = &fields[0].as_ref() {
                         let alloca = self.builder.build_alloca(self.context.i64_type(), name)?;
                         self.builder.build_store(alloca, payload)?;
                         ctx.insert(
@@ -4142,11 +4166,13 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     }
                 }
             }
-            ast::nodes::Pattern::Struct { name: _, fields } => {
+            Pattern::Struct { name: _, fields } => {
                 // For now, struct field binding is not implemented
                 warn!("Struct field binding not yet implemented");
                 for (_field_name, field_pattern) in fields {
-                    if let Some(ast::nodes::Pattern::Identifier(var_name)) = field_pattern {
+                    if let Some(node) = field_pattern
+                        && let Pattern::Identifier(var_name) = node.as_ref()
+                    {
                         // Create dummy binding
                         let alloca = self
                             .builder
@@ -4163,11 +4189,11 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     }
                 }
             }
-            ast::nodes::Pattern::Array { patterns, rest } => {
+            Pattern::Array { patterns, rest } => {
                 // For now, array element binding is not implemented
                 warn!("Array element binding not yet implemented");
                 for pattern in patterns {
-                    if let ast::nodes::Pattern::Identifier(name) = pattern {
+                    if let Pattern::Identifier(name) = pattern.as_ref() {
                         let alloca = self.builder.build_alloca(self.context.i64_type(), name)?;
                         let zero = self.context.i64_type().const_int(0, false);
                         self.builder.build_store(alloca, zero)?;

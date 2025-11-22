@@ -8,7 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::{self, TypeChecker};
-use ast::nodes::{Expr, Program, Statement};
+use ast::nodes::{Expr, Function, Node, Program, Statement, Type};
 use common::Span;
 use lexer::{LexerError, Token, tokenize};
 use parser::parse;
@@ -734,45 +734,46 @@ fn build_symbol_table(program: &Program, tokens: &[Token], text: &str) -> Symbol
 
 /// Recursively extract symbol definitions from statements
 fn build_symbol_table_from_statements(
-    statements: &[Statement],
+    statements: &[Node<Statement>],
     table: &mut SymbolTable,
     tokens: &[Token],
     text: &str,
 ) {
     for stmt in statements {
-        match stmt {
-            Statement::Let {
-                name,
-                ty,
-                span,
-                expr,
-                ..
-            } if span.is_some() => {
+        let span = stmt.span();
+        match stmt.as_ref() {
+            Statement::Let { name, ty, expr, .. } => {
                 let ty_str = ty
                     .as_ref()
-                    .map(format_type)
-                    .or_else(|| infer_type_from_expr(expr));
-                table.add_variable(name.clone(), span.unwrap(), ty_str);
+                    .map(|ty| format_type(ty.as_ref()))
+                    .or_else(|| infer_type_from_expr(expr.as_ref()));
+                table.add_variable(name.as_ref().clone(), *span, ty_str);
             }
-
-            Statement::Let {
-                // name, span, expr,
-                ..
-            } => {}
 
             Statement::Function(func) => {
                 // Find function name span from tokens
-                if let Some(span) = find_name_span(&func.name, tokens, text) {
-                    let sig = format_function_signature(func);
-                    table.add_function(func.name.clone(), span, Some(sig));
+                if let Some(span) = find_name_span(&func.as_ref().name, tokens, text) {
+                    let sig = format_function_signature(func.as_ref());
+                    table.add_function(func.as_ref().name.clone(), span, Some(sig));
                 }
-                for param in &func.params {
-                    if let Some(span) = param.span {
-                        let ty = param.ty.as_ref().map(format_type);
-                        table.add_parameter(param.name.clone(), span, ty);
-                    }
+                for param in &func.as_ref().params {
+                    let ty = param
+                        .as_ref()
+                        .ty
+                        .as_ref()
+                        .map(|ty| format_type(ty.as_ref()));
+                    table.add_parameter(
+                        param.as_ref().name.as_ref().clone(),
+                        *param.span(),
+                        ty,
+                    );
                 }
-                build_symbol_table_from_statements(&func.body.statements, table, tokens, text);
+                build_symbol_table_from_statements(
+                    &func.as_ref().body.as_ref().statements,
+                    table,
+                    tokens,
+                    text,
+                );
             }
             Statement::Struct { name, .. } => {
                 if let Some(span) = find_name_span(name, tokens, text) {
@@ -795,27 +796,35 @@ fn build_symbol_table_from_statements(
                 else_block,
                 ..
             } => {
-                build_symbol_table_from_statements(&then_block.statements, table, tokens, text);
+                build_symbol_table_from_statements(
+                    &then_block.as_ref().statements,
+                    table,
+                    tokens,
+                    text,
+                );
                 for (_, block) in elif_blocks {
-                    build_symbol_table_from_statements(&block.statements, table, tokens, text);
+                    build_symbol_table_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
                 if let Some(block) = else_block {
-                    build_symbol_table_from_statements(&block.statements, table, tokens, text);
+                    build_symbol_table_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
             }
-            Statement::For {
-                var,
-                var_span,
-                body,
-                ..
-            } => {
-                if let Some(span) = var_span {
-                    table.add_variable(var.clone(), *span, None);
-                }
-                build_symbol_table_from_statements(&body.statements, table, tokens, text);
+            Statement::For { var, body, .. } => {
+                table.add_variable(var.as_ref().clone(), *span, None);
+                build_symbol_table_from_statements(&body.as_ref().statements, table, tokens, text);
             }
             Statement::While { body, .. } => {
-                build_symbol_table_from_statements(&body.statements, table, tokens, text);
+                build_symbol_table_from_statements(&body.as_ref().statements, table, tokens, text);
             }
             Statement::Try {
                 body,
@@ -824,24 +833,34 @@ fn build_symbol_table_from_statements(
                 finally_block,
                 ..
             } => {
-                build_symbol_table_from_statements(&body.statements, table, tokens, text);
+                build_symbol_table_from_statements(&body.as_ref().statements, table, tokens, text);
                 for handler in handlers {
                     build_symbol_table_from_statements(
-                        &handler.body.statements,
+                        &handler.as_ref().body.as_ref().statements,
                         table,
                         tokens,
                         text,
                     );
                 }
                 if let Some(block) = else_block {
-                    build_symbol_table_from_statements(&block.statements, table, tokens, text);
+                    build_symbol_table_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
                 if let Some(block) = finally_block {
-                    build_symbol_table_from_statements(&block.statements, table, tokens, text);
+                    build_symbol_table_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
             }
             Statement::Block(block) => {
-                build_symbol_table_from_statements(&block.statements, table, tokens, text);
+                build_symbol_table_from_statements(&block.as_ref().statements, table, tokens, text);
             }
             _ => {}
         }
@@ -850,30 +869,36 @@ fn build_symbol_table_from_statements(
 
 /// Collect references to symbols from expressions
 fn collect_references_from_statements(
-    statements: &[Statement],
+    statements: &[Node<Statement>],
     table: &mut SymbolTable,
     tokens: &[Token],
     text: &str,
 ) {
     for stmt in statements {
-        match stmt {
+        let span = stmt.span();
+        match stmt.as_ref() {
             Statement::Function(func) => {
                 collect_references_from_expr(
                     &Expr::Call {
-                        func: Box::new(Expr::Identifier {
-                            name: func.name.clone(),
-                            span: None,
-                        }),
+                        func: Box::new(Node::new(
+                            Expr::Identifier(func.as_ref().name.clone()),
+                            *span,
+                        )),
                         args: vec![],
                     },
                     table,
                     tokens,
                     text,
                 );
-                collect_references_from_statements(&func.body.statements, table, tokens, text);
+                collect_references_from_statements(
+                    &func.as_ref().body.as_ref().statements,
+                    table,
+                    tokens,
+                    text,
+                );
             }
             Statement::Let { expr, .. } => {
-                collect_references_from_expr(expr, table, tokens, text);
+                collect_references_from_expr(expr.as_ref(), table, tokens, text);
             }
             Statement::If {
                 cond,
@@ -882,29 +907,44 @@ fn collect_references_from_statements(
                 else_block,
                 ..
             } => {
-                collect_references_from_expr(cond, table, tokens, text);
-                collect_references_from_statements(&then_block.statements, table, tokens, text);
+                collect_references_from_expr(cond.as_ref(), table, tokens, text);
+                collect_references_from_statements(
+                    &then_block.as_ref().statements,
+                    table,
+                    tokens,
+                    text,
+                );
                 for (cond, block) in elif_blocks {
-                    collect_references_from_expr(cond, table, tokens, text);
-                    collect_references_from_statements(&block.statements, table, tokens, text);
+                    collect_references_from_expr(cond.as_ref(), table, tokens, text);
+                    collect_references_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
                 if let Some(block) = else_block {
-                    collect_references_from_statements(&block.statements, table, tokens, text);
+                    collect_references_from_statements(
+                        &block.as_ref().statements,
+                        table,
+                        tokens,
+                        text,
+                    );
                 }
             }
             Statement::For { iterable, body, .. } => {
-                collect_references_from_expr(iterable, table, tokens, text);
-                collect_references_from_statements(&body.statements, table, tokens, text);
+                collect_references_from_expr(iterable.as_ref(), table, tokens, text);
+                collect_references_from_statements(&body.as_ref().statements, table, tokens, text);
             }
             Statement::While { cond, body } => {
-                collect_references_from_expr(cond, table, tokens, text);
-                collect_references_from_statements(&body.statements, table, tokens, text);
+                collect_references_from_expr(cond.as_ref(), table, tokens, text);
+                collect_references_from_statements(&body.as_ref().statements, table, tokens, text);
             }
             Statement::Expr(expr) => {
-                collect_references_from_expr(expr, table, tokens, text);
+                collect_references_from_expr(expr.as_ref(), table, tokens, text);
             }
             Statement::Return(Some(expr)) => {
-                collect_references_from_expr(expr, table, tokens, text);
+                collect_references_from_expr(expr.as_ref(), table, tokens, text);
             }
             _ => {}
         }
@@ -919,47 +959,47 @@ fn collect_references_from_expr(
     text: &str,
 ) {
     match expr {
-        Expr::Identifier { name, .. } => {
+        Expr::Identifier(name) => {
             if let Some(span) = find_name_span(name, tokens, text) {
                 table.add_reference(name.clone(), span);
             }
         }
         Expr::Call { func, args } => {
-            collect_references_from_expr(func, table, tokens, text);
+            collect_references_from_expr(func.as_ref().as_ref(), table, tokens, text);
             for arg in args {
-                collect_references_from_expr(arg, table, tokens, text);
+                collect_references_from_expr(arg.as_ref(), table, tokens, text);
             }
         }
         Expr::Member { object, .. } => {
-            collect_references_from_expr(object, table, tokens, text);
+            collect_references_from_expr(object.as_ref().as_ref(), table, tokens, text);
         }
         Expr::Binary { left, right, .. } => {
-            collect_references_from_expr(left, table, tokens, text);
-            collect_references_from_expr(right, table, tokens, text);
+            collect_references_from_expr(left.as_ref().as_ref(), table, tokens, text);
+            collect_references_from_expr(right.as_ref().as_ref(), table, tokens, text);
         }
         Expr::Unary { expr, .. } => {
-            collect_references_from_expr(expr, table, tokens, text);
+            collect_references_from_expr(expr.as_ref().as_ref(), table, tokens, text);
         }
         Expr::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            collect_references_from_expr(cond, table, tokens, text);
-            collect_references_from_expr(then_branch, table, tokens, text);
+            collect_references_from_expr(cond.as_ref().as_ref(), table, tokens, text);
+            collect_references_from_expr(then_branch.as_ref().as_ref(), table, tokens, text);
             if let Some(else_expr) = else_branch {
-                collect_references_from_expr(else_expr, table, tokens, text);
+                collect_references_from_expr(else_expr.as_ref().as_ref(), table, tokens, text);
             }
         }
         Expr::Array(elements) => {
             for elem in elements {
-                collect_references_from_expr(elem, table, tokens, text);
+                collect_references_from_expr(elem.as_ref(), table, tokens, text);
             }
         }
         Expr::Dict(pairs) => {
             for (key, value) in pairs {
-                collect_references_from_expr(key, table, tokens, text);
-                collect_references_from_expr(value, table, tokens, text);
+                collect_references_from_expr(key.as_ref(), table, tokens, text);
+                collect_references_from_expr(value.as_ref(), table, tokens, text);
             }
         }
         _ => {}
@@ -979,32 +1019,34 @@ fn find_name_span(name: &str, tokens: &[Token], _text: &str) -> Option<Span> {
 }
 
 /// Format function signature for display
-fn format_function_signature(func: &ast::nodes::Function) -> String {
+fn format_function_signature(func: &Function) -> String {
     let params: Vec<String> = func
         .params
         .iter()
         .map(|p| {
-            let ty_str =
-                p.ty.as_ref()
-                    .map(|t| format!(": {}", format_type(t)))
-                    .unwrap_or_default();
-            format!("{}{}", p.name, ty_str)
+            let ty_str = p
+                .as_ref()
+                .ty
+                .as_ref()
+                .map(|t| format!(": {}", format_type(t.as_ref())))
+                .unwrap_or_default();
+            format!("{}{}", p.as_ref().name, ty_str)
         })
         .collect();
     let ret_ty = func
         .ret_ty
         .as_ref()
-        .map(|t| format!(" -> {}", format_type(t)))
+        .map(|t| format!(" -> {}", format_type(t.as_ref())))
         .unwrap_or_default();
     format!("def {}({}){}", func.name, params.join(", "), ret_ty)
 }
 
 /// Format type for display
-fn format_type(ty: &ast::nodes::Type) -> String {
+fn format_type(ty: &Type) -> String {
     match ty {
-        ast::nodes::Type::Simple(name) => name.clone(),
-        ast::nodes::Type::Generic { base, args } => {
-            let args_str: Vec<String> = args.iter().map(format_type).collect();
+        Type::Simple(name) => name.clone(),
+        Type::Generic { base, args } => {
+            let args_str: Vec<String> = args.iter().map(|t| format_type(t.as_ref())).collect();
             format!("{}<{}>", base, args_str.join(", "))
         }
     }

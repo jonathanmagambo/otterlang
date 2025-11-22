@@ -14,27 +14,29 @@ impl CallGraph {
 
     pub fn analyze_program(&mut self, program: &ast::nodes::Program) {
         for function in program.functions() {
-            self.analyze_function(function);
+            self.analyze_function(function.as_ref());
         }
     }
 
     pub fn analyze_function(&mut self, function: &Function) {
-        let callees = self.extract_callees(&function.body);
+        let callees = self.extract_callees(function.body.as_ref());
         self.calls.insert(function.name.clone(), callees);
     }
 
     fn extract_callees(&self, block: &Block) -> Vec<String> {
         let mut callees = Vec::new();
         for stmt in &block.statements {
-            self.extract_callees_from_stmt(stmt, &mut callees);
+            self.extract_callees_from_stmt(stmt.as_ref(), &mut callees);
         }
         callees
     }
 
     fn extract_callees_from_stmt(&self, stmt: &Statement, callees: &mut Vec<String>) {
         match stmt {
-            Statement::Expr(Expr::Call { func, .. }) => {
-                if let Expr::Identifier { name, .. } = func.as_ref() {
+            Statement::Expr(expr) => {
+                if let Expr::Call { func, .. } = expr.as_ref()
+                    && let Expr::Identifier(name) = func.as_ref().as_ref()
+                {
                     callees.push(name.clone());
                 }
             }
@@ -44,16 +46,16 @@ impl CallGraph {
                 else_block,
                 ..
             } => {
-                self.extract_callees_from_block(then_block, callees);
+                self.extract_callees_from_block(then_block.as_ref(), callees);
                 for (_, block) in elif_blocks {
-                    self.extract_callees_from_block(block, callees);
+                    self.extract_callees_from_block(block.as_ref(), callees);
                 }
                 if let Some(block) = else_block {
-                    self.extract_callees_from_block(block, callees);
+                    self.extract_callees_from_block(block.as_ref(), callees);
                 }
             }
             Statement::For { body, .. } | Statement::While { body, .. } => {
-                self.extract_callees_from_block(body, callees);
+                self.extract_callees_from_block(body.as_ref(), callees);
             }
             _ => {}
         }
@@ -61,7 +63,7 @@ impl CallGraph {
 
     fn extract_callees_from_block(&self, block: &Block, callees: &mut Vec<String>) {
         for stmt in &block.statements {
-            self.extract_callees_from_stmt(stmt, callees);
+            self.extract_callees_from_stmt(stmt.as_ref(), callees);
         }
     }
 

@@ -1,5 +1,5 @@
 use super::RuntimeType;
-use ast::nodes::Expr;
+use ast::nodes::{Expr, Literal};
 
 /// Tracks runtime types for specialization
 pub struct TypeTracker {
@@ -22,10 +22,10 @@ impl TypeTracker {
     /// Infer runtime type from expression
     pub fn infer_type(&mut self, expr: &Expr) -> RuntimeType {
         match expr {
-            Expr::Literal(lit) => match lit {
-                ast::nodes::Literal::Bool(_) => RuntimeType::Bool,
-                ast::nodes::Literal::Number(_) => RuntimeType::F64, // Default to float
-                ast::nodes::Literal::String(_) => RuntimeType::Str,
+            Expr::Literal(lit) => match lit.as_ref() {
+                Literal::Bool(_) => RuntimeType::Bool,
+                Literal::Number(_) => RuntimeType::F64, // Default to float
+                Literal::String(_) => RuntimeType::Str,
                 _ => RuntimeType::Unknown,
             },
             Expr::Identifier { .. } => RuntimeType::Unknown, // Would need symbol table lookup
