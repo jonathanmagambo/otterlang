@@ -677,8 +677,8 @@ fn expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<TokenKind>
             .clone()
             .then(
                 choice((
-                    just(TokenKind::Amp).to(BinaryOp::And),
-                    just(TokenKind::Pipe).to(BinaryOp::Or),
+                    just(TokenKind::And).to(BinaryOp::And),
+                    just(TokenKind::Or).to(BinaryOp::Or),
                 ))
                 .then(comparison)
                 .repeated(),
