@@ -1240,9 +1240,7 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
             } => self.eval_if_expr(
                 cond.as_ref().as_ref(),
                 then_branch.as_ref().as_ref(),
-                else_branch
-                    .as_ref()
-                    .map(|node| node.as_ref().as_ref()),
+                else_branch.as_ref().map(|node| node.as_ref().as_ref()),
                 ctx,
             ),
             Expr::Range { .. } => bail!("Range expressions can only be used in for loops"),
@@ -2056,6 +2054,41 @@ impl<'ctx, 'types> Compiler<'ctx, 'types> {
                     _ => bail!("unsupported binary operation for floats: {:?}", op),
                 };
                 Ok(EvaluatedValue::with_value(result, OtterType::F64))
+            }
+            OtterType::Bool => {
+                let lhs = left_value
+                    .value
+                    .ok_or_else(|| anyhow!("left operand missing value"))?
+                    .into_int_value();
+                let rhs = right_value
+                    .value
+                    .ok_or_else(|| anyhow!("right operand missing value"))?
+                    .into_int_value();
+
+                let result = match op {
+                    BinaryOp::And => self.builder.build_and(lhs, rhs, "andtmp")?.into(),
+                    BinaryOp::Or => self.builder.build_or(lhs, rhs, "ortmp")?.into(),
+                    BinaryOp::Eq => {
+                        let cmp = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            lhs,
+                            rhs,
+                            "eq",
+                        )?;
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    BinaryOp::Ne => {
+                        let cmp = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            lhs,
+                            rhs,
+                            "ne",
+                        )?;
+                        return Ok(EvaluatedValue::with_value(cmp.into(), OtterType::Bool));
+                    }
+                    _ => bail!("unsupported binary operation for booleans: {:?}", op),
+                };
+                Ok(EvaluatedValue::with_value(result, OtterType::Bool))
             }
             _ => bail!(
                 "binary expressions support only integers and floats, got {:?}",

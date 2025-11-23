@@ -793,6 +793,8 @@ impl LexerState {
             "raise" => TokenKind::Raise,
             "struct" => TokenKind::Struct,
             "enum" => TokenKind::Enum,
+            "and" => TokenKind::And,
+            "or" => TokenKind::Or,
             _ => TokenKind::Identifier(value.to_string()),
         };
 
