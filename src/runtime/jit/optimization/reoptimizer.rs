@@ -110,7 +110,7 @@ impl Reoptimizer {
             self.fold_constants_in_statement(stmt.as_mut());
             let (stmt, span) = stmt.into_parts();
             match self.simplify_statement(stmt) {
-                StatementTransform::Single(stmt) => rewritten.push(Node::new(stmt, span)),
+                StatementTransform::Single(stmt) => rewritten.push(Node::new(*stmt, span)),
                 StatementTransform::Many(stmts) => {
                     rewritten.extend(stmts.into_iter().map(|s| Node::new(s, span)))
                 }
@@ -430,18 +430,18 @@ impl Reoptimizer {
                 {
                     StatementTransform::None
                 } else {
-                    StatementTransform::Single(Statement::If {
+                    StatementTransform::Single(Box::new(Statement::If {
                         cond,
                         then_block,
                         elif_blocks,
                         else_block,
-                    })
+                    }))
                 }
             }
             Statement::Block(block) if block.as_ref().statements.is_empty() => {
                 StatementTransform::None
             }
-            other => StatementTransform::Single(other),
+            other => StatementTransform::Single(Box::new(other)),
         }
     }
 
@@ -566,7 +566,7 @@ impl Default for Reoptimizer {
 }
 
 enum StatementTransform {
-    Single(Statement),
+    Single(Box<Statement>),
     Many(Vec<Statement>),
     None,
 }
