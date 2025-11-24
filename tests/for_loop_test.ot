@@ -1,0 +1,16 @@
+fn test_for_loop():
+    let sum = 0.0
+    for i in 0.0..10.0:
+        sum = sum + i
+    # sum should be 45.0
+
+fn test_for_loop_nested():
+    let total = 0.0
+    for i in 0.0..5.0:
+        for j in 0.0..3.0:
+            total = total + 1.0
+    # total should be 15.0
+
+fn main():
+    test_for_loop()
+    test_for_loop_nested()

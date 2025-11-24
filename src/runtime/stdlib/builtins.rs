@@ -22,7 +22,7 @@ fn next_handle_id() -> HandleId {
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
-enum Value {
+pub enum Value {
     Unit,
     Bool(bool),
     I64(i64),
@@ -32,11 +32,11 @@ enum Value {
     Map(HandleId),
 }
 
-struct List {
-    items: Vec<Value>,
+pub struct List {
+    pub items: Vec<Value>,
 }
 
-static LISTS: Lazy<RwLock<std::collections::HashMap<HandleId, List>>> =
+pub static LISTS: Lazy<RwLock<std::collections::HashMap<HandleId, List>>> =
     Lazy::new(|| RwLock::new(std::collections::HashMap::new()));
 
 struct Map {

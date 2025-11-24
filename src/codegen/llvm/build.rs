@@ -33,7 +33,7 @@ pub fn build_executable(
     let builder = context.create_builder();
     let registry = crate::runtime::ffi::bootstrap_stdlib();
     let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
+    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types.clone());
 
     compiler.lower_program(program, true)?; // Require main for executables
     compiler
@@ -249,7 +249,7 @@ pub fn build_shared_library(
     let builder = context.create_builder();
     let registry = crate::runtime::ffi::bootstrap_stdlib();
     let bridge_libraries = prepare_rust_bridges(program, registry)?;
-    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types);
+    let mut compiler = Compiler::new(&context, module, builder, registry, expr_types.clone());
 
     compiler.lower_program(program, false)?; // Don't require main for shared libraries
     compiler

@@ -1,18 +1,43 @@
 {
   "name": "otterlang",
   "displayName": "OtterLang",
-  "description": "Language support for OtterLang",
-  "version": "0.1.0",
+  "description": "Beautiful language support for OtterLang with LSP, snippets, and more!",
+  "version": "0.2.0",
+  "publisher": "otterlang",
+  "author": "OtterLang Team",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonathanmagambo/otterlang",
+    "directory": "vscode-extension"
+  },
+  "bugs": {
+    "url": "https://github.com/jonathanmagambo/otterlang/issues"
+  },
+  "homepage": "https://github.com/jonathanmagambo/otterlang/tree/main/vscode-extension",
+  "galleryBanner": {
+    "color": "#C8956B",
+    "theme": "light"
+  },
+  "keywords": [
+    "otterlang",
+    "otter",
+    "programming",
+    "language",
+    "lsp",
+    "syntax"
+  ],
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Snippets",
+    "Formatters",
+    "Linters"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [
-    "onLanguage:otterlang"
-  ],
+  "activationEvents": [],
   "contributes": {
     "languages": [
       {
@@ -45,37 +70,117 @@
         },
         "otterlang.lsp.trace": {
           "type": "string",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "default": "off",
           "description": "LSP trace level for debugging"
+        },
+        "otterlang.formatting.indentSize": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of spaces for indentation"
+        },
+        "otterlang.formatting.insertSpaces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use spaces instead of tabs"
+        },
+        "otterlang.linting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable linting"
+        },
+        "otterlang.interpreterPath": {
+          "type": "string",
+          "default": "otterlang",
+          "description": "Path to the OtterLang interpreter"
         }
       }
     },
+    "snippets": [
+      {
+        "language": "otterlang",
+        "path": "./snippets/otterlang.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "otterlang-icons",
+        "label": "OtterLang File Icons",
+        "path": "./icons/otterlang-icon-theme.json"
+      }
+    ],
     "commands": [
       {
         "command": "otterlang.restartServer",
         "title": "Restart Language Server",
-        "category": "OtterLang"
+        "category": "OtterLang",
+        "icon": "$(debug-restart)"
       },
       {
         "command": "otterlang.startServer",
         "title": "Start Language Server",
-        "category": "OtterLang"
+        "category": "OtterLang",
+        "icon": "$(play)"
       },
       {
         "command": "otterlang.stopServer",
         "title": "Stop Language Server",
-        "category": "OtterLang"
+        "category": "OtterLang",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "otterlang.toggleLogs",
         "title": "Toggle LSP Logs",
-        "category": "OtterLang"
+        "category": "OtterLang",
+        "icon": "$(output)"
       },
       {
         "command": "otterlang.showOutput",
         "title": "Show Output",
-        "category": "OtterLang"
+        "category": "OtterLang",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "otterlang.runFile",
+        "title": "Run Current File",
+        "category": "OtterLang",
+        "icon": "$(run)"
+      },
+      {
+        "command": "otterlang.formatDocument",
+        "title": "Format Document",
+        "category": "OtterLang",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "otterlang.showMenu",
+        "title": "Show OtterLang Menu",
+        "category": "OtterLang",
+        "icon": "$(menu)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "otterlang.runFile",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorLangId == otterlang"
+      },
+      {
+        "command": "otterlang.formatDocument",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "editorLangId == otterlang"
+      },
+      {
+        "command": "otterlang.restartServer",
+        "key": "ctrl+shift+p",
+        "mac": "cmd+shift+p",
+        "when": "editorLangId == otterlang"
       }
     ],
     "menus": {
@@ -117,4 +222,3 @@
     "vscode-languageclient": "^9.0.0"
   }
 }
-

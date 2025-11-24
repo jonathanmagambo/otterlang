@@ -1,0 +1,38 @@
+fn test_arithmetic():
+    let a = 10.0
+    let b = 20.0
+    let c = a + b
+    let d = a * b
+    let e = b - a
+    let f = b / a
+
+fn test_variables():
+    let x = 5.0
+    let y = x
+
+fn test_if_else():
+    let x = 10.0
+    if x > 5.0:
+        let result = true
+    else:
+        let result = false
+
+fn test_while_loop():
+    let i = 0.0
+    let sum = 0.0
+    while i < 10.0:
+        sum = sum + i
+        i = i + 1.0
+
+fn add(a: float, b: float) -> float:
+    return a + b
+
+fn test_function_call():
+    let res = add(5.0, 7.0)
+
+fn main():
+    test_arithmetic()
+    test_variables()
+    test_if_else()
+    test_while_loop()
+    test_function_call()

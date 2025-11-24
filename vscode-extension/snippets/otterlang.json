@@ -1,0 +1,184 @@
+{
+    "Function Definition": {
+        "prefix": "def",
+        "body": [
+            "def ${1:function_name}(${2:params}):",
+            "    ${0:pass}"
+        ],
+        "description": "Define a new function"
+    },
+    "Class Definition": {
+        "prefix": "class",
+        "body": [
+            "class ${1:ClassName}:",
+            "    def __init__(self, ${2:params}):",
+            "        ${0:pass}"
+        ],
+        "description": "Define a new class"
+    },
+    "If Statement": {
+        "prefix": "if",
+        "body": [
+            "if ${1:condition}:",
+            "    ${0:pass}"
+        ],
+        "description": "If statement"
+    },
+    "If-Else Statement": {
+        "prefix": "ife",
+        "body": [
+            "if ${1:condition}:",
+            "    ${2:pass}",
+            "else:",
+            "    ${0:pass}"
+        ],
+        "description": "If-else statement"
+    },
+    "If-Elif-Else Statement": {
+        "prefix": "ifel",
+        "body": [
+            "if ${1:condition}:",
+            "    ${2:pass}",
+            "elif ${3:condition}:",
+            "    ${4:pass}",
+            "else:",
+            "    ${0:pass}"
+        ],
+        "description": "If-elif-else statement"
+    },
+    "For Loop": {
+        "prefix": "for",
+        "body": [
+            "for ${1:item} in ${2:iterable}:",
+            "    ${0:pass}"
+        ],
+        "description": "For loop"
+    },
+    "For Range Loop": {
+        "prefix": "forr",
+        "body": [
+            "for ${1:i} in ${2:0}..${3:10}:",
+            "    ${0:pass}"
+        ],
+        "description": "For loop with range"
+    },
+    "While Loop": {
+        "prefix": "while",
+        "body": [
+            "while ${1:condition}:",
+            "    ${0:pass}"
+        ],
+        "description": "While loop"
+    },
+    "Try-Except": {
+        "prefix": "try",
+        "body": [
+            "try:",
+            "    ${1:pass}",
+            "except ${2:Exception} as ${3:e}:",
+            "    ${0:pass}"
+        ],
+        "description": "Try-except block"
+    },
+    "Try-Except-Finally": {
+        "prefix": "tryf",
+        "body": [
+            "try:",
+            "    ${1:pass}",
+            "except ${2:Exception} as ${3:e}:",
+            "    ${4:pass}",
+            "finally:",
+            "    ${0:pass}"
+        ],
+        "description": "Try-except-finally block"
+    },
+    "Match Statement": {
+        "prefix": "match",
+        "body": [
+            "match ${1:value}:",
+            "    case ${2:pattern}:",
+            "        ${0:pass}"
+        ],
+        "description": "Match statement"
+    },
+    "Print": {
+        "prefix": "print",
+        "body": [
+            "print(${0:value})"
+        ],
+        "description": "Print statement"
+    },
+    "Main Function": {
+        "prefix": "main",
+        "body": [
+            "def main():",
+            "    ${0:pass}",
+            "",
+            "if __name__ == \"__main__\":",
+            "    main()"
+        ],
+        "description": "Main function template"
+    },
+    "List Comprehension": {
+        "prefix": "lc",
+        "body": [
+            "[${1:expr} for ${2:item} in ${3:iterable}]"
+        ],
+        "description": "List comprehension"
+    },
+    "Dict Comprehension": {
+        "prefix": "dc",
+        "body": [
+            "{${1:key}: ${2:value} for ${3:item} in ${4:iterable}}"
+        ],
+        "description": "Dictionary comprehension"
+    },
+    "Lambda": {
+        "prefix": "lambda",
+        "body": [
+            "lambda ${1:params}: ${0:expression}"
+        ],
+        "description": "Lambda function"
+    },
+    "Import": {
+        "prefix": "import",
+        "body": [
+            "import ${0:module}"
+        ],
+        "description": "Import statement"
+    },
+    "From Import": {
+        "prefix": "from",
+        "body": [
+            "from ${1:module} import ${0:name}"
+        ],
+        "description": "From import statement"
+    },
+    "Struct Definition": {
+        "prefix": "struct",
+        "body": [
+            "struct ${1:StructName}:",
+            "    ${2:field}: ${3:Type}",
+            "    ${0}"
+        ],
+        "description": "Define a new struct"
+    },
+    "Enum Definition": {
+        "prefix": "enum",
+        "body": [
+            "enum ${1:EnumName}:",
+            "    ${2:Variant1}",
+            "    ${0:Variant2}"
+        ],
+        "description": "Define a new enum"
+    },
+    "Doc Comment": {
+        "prefix": "doc",
+        "body": [
+            "\"\"\"",
+            "${0:Description}",
+            "\"\"\""
+        ],
+        "description": "Documentation comment"
+    }
+}

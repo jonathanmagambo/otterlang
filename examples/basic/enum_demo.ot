@@ -32,3 +32,22 @@ fn main():
     print("Enum types and match expressions work!")
     print(f"Result1: {result1}")
     print(f"Result2: {result2}")
+
+    test_iteration()
+
+fn test_iteration():
+    print("Testing collection iteration:")
+
+    # Test list iteration
+    let my_list = [1, 2, 3, 4, 5]
+    let sum = 0
+    for num in my_list:
+        sum = sum + num
+    print(f"Sum of [1,2,3,4,5] = {sum}")
+
+    # Test string iteration
+    let text = "hello"
+    let chars = []
+    for char in text:
+        chars.append(char)
+    print(f"Characters in 'hello': {chars}")

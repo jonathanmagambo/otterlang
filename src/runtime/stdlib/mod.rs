@@ -1,4 +1,5 @@
 pub mod builtins;
+pub mod exceptions;
 pub mod fmt;
 pub mod io;
 pub mod json;

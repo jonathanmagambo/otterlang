@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="otterBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#C8956B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B8855B;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="otterBelly" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#F5DEB3;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E5CE9F;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Main body -->
+  <ellipse cx="64" cy="75" rx="35" ry="40" fill="url(#otterBody)" stroke="#2C2416" stroke-width="3"/>
+  
+  <!-- Belly -->
+  <ellipse cx="64" cy="80" rx="22" ry="28" fill="url(#otterBelly)"/>
+  
+  <!-- Head -->
+  <circle cx="64" cy="40" r="28" fill="url(#otterBody)" stroke="#2C2416" stroke-width="3"/>
+  
+  <!-- Ears -->
+  <circle cx="45" cy="22" r="8" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+  <circle cx="83" cy="22" r="8" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+  
+  <!-- Eyes -->
+  <circle cx="54" cy="38" r="8" fill="white" stroke="#2C2416" stroke-width="2"/>
+  <circle cx="74" cy="38" r="8" fill="white" stroke="#2C2416" stroke-width="2"/>
+  <circle cx="56" cy="38" r="5" fill="#2C2416"/>
+  <circle cx="76" cy="38" r="5" fill="#2C2416"/>
+  <circle cx="57" cy="36" r="2" fill="white"/>
+  <circle cx="77" cy="36" r="2" fill="white"/>
+  
+  <!-- Nose -->
+  <ellipse cx="64" cy="48" rx="4" ry="3" fill="#2C2416"/>
+  
+  <!-- Whiskers -->
+  <line x1="38" y1="44" x2="25" y2="42" stroke="#2C2416" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="38" y1="48" x2="25" y2="50" stroke="#2C2416" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="90" y1="44" x2="103" y2="42" stroke="#2C2416" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="90" y1="48" x2="103" y2="50" stroke="#2C2416" stroke-width="1.5" stroke-linecap="round"/>
+  
+  <!-- Tail - seamlessly connected -->
+  <ellipse cx="105" cy="85" rx="12" ry="18" fill="url(#otterBody)" stroke="#2C2416" stroke-width="3" transform="rotate(25 105 85)"/>
+  
+  <!-- Arms -->
+  <ellipse cx="40" cy="75" rx="8" ry="12" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+  <ellipse cx="88" cy="75" rx="8" ry="12" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+  
+  <!-- Feet -->
+  <ellipse cx="52" cy="110" rx="10" ry="6" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+  <ellipse cx="76" cy="110" rx="10" ry="6" fill="url(#otterBody)" stroke="#2C2416" stroke-width="2"/>
+</svg>

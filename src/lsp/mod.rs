@@ -754,57 +754,57 @@ impl LanguageServer for Backend {
                 && let Some(symbol) = symbol_table.get(&func_name)
                 && let Some(callable) = &symbol.callable
             {
-                    let parameters: Vec<ParameterInformation> = callable
-                        .params
-                        .iter()
-                        .map(|param| {
-                            let mut label = param.name.clone();
-                            if let Some(ty) = &param.ty {
-                                label.push_str(": ");
-                                label.push_str(ty);
-                            }
-                            let mut doc_lines = Vec::new();
-                            if let Some(ty) = &param.ty {
-                                doc_lines.push(format!("type: {}", ty));
-                            }
-                            if param.has_default {
-                                doc_lines.push("default parameter".to_string());
-                            }
-                            let documentation = if doc_lines.is_empty() {
-                                None
-                            } else {
-                                Some(Documentation::String(doc_lines.join("\n")))
-                            };
-                            ParameterInformation {
-                                label: ParameterLabel::Simple(label),
-                                documentation,
-                            }
-                        })
-                        .collect();
+                let parameters: Vec<ParameterInformation> = callable
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let mut label = param.name.clone();
+                        if let Some(ty) = &param.ty {
+                            label.push_str(": ");
+                            label.push_str(ty);
+                        }
+                        let mut doc_lines = Vec::new();
+                        if let Some(ty) = &param.ty {
+                            doc_lines.push(format!("type: {}", ty));
+                        }
+                        if param.has_default {
+                            doc_lines.push("default parameter".to_string());
+                        }
+                        let documentation = if doc_lines.is_empty() {
+                            None
+                        } else {
+                            Some(Documentation::String(doc_lines.join("\n")))
+                        };
+                        ParameterInformation {
+                            label: ParameterLabel::Simple(label),
+                            documentation,
+                        }
+                    })
+                    .collect();
 
-                    let signature_label = symbol
-                        .ty
-                        .clone()
-                        .unwrap_or_else(|| format_callable_signature(callable));
+                let signature_label = symbol
+                    .ty
+                    .clone()
+                    .unwrap_or_else(|| format_callable_signature(callable));
 
-                    let signature = SignatureInformation {
-                        label: signature_label,
-                        documentation: None,
-                        parameters: Some(parameters.clone()),
-                        active_parameter: None,
-                    };
+                let signature = SignatureInformation {
+                    label: signature_label,
+                    documentation: None,
+                    parameters: Some(parameters.clone()),
+                    active_parameter: None,
+                };
 
-                    let active_param_index = if parameters.is_empty() {
-                        0
-                    } else {
-                        active_param.min(parameters.len() - 1)
-                    } as u32;
+                let active_param_index = if parameters.is_empty() {
+                    0
+                } else {
+                    active_param.min(parameters.len() - 1)
+                } as u32;
 
-                    return Ok(Some(SignatureHelp {
-                        signatures: vec![signature],
-                        active_signature: Some(0),
-                        active_parameter: Some(active_param_index),
-                    }));
+                return Ok(Some(SignatureHelp {
+                    signatures: vec![signature],
+                    active_signature: Some(0),
+                    active_parameter: Some(active_param_index),
+                }));
             }
         }
 
