@@ -144,8 +144,8 @@ pub fn build_executable(
         RelocMode::Default
     };
     
-    // For macOS, specify CPU and features to ensure proper platform metadata
-    let (cpu, features) = if runtime_triple.os == "darwin" {
+    // macOS on x86_64 needs explicit SSE feature flags; other targets don't
+    let (cpu, features) = if runtime_triple.os == "darwin" && runtime_triple.arch == "x86_64" {
         ("generic", "+sse,+sse2,+sse3,+ssse3")
     } else {
         ("generic", "")
@@ -389,8 +389,8 @@ pub fn build_shared_library(
     let optimization: OptimizationLevel = options.opt_level.into();
     let reloc_mode = RelocMode::PIC;
 
-    // For macOS, specify CPU and features to ensure proper platform metadata
-    let (cpu, features) = if runtime_triple.os == "darwin" {
+    // macOS on x86_64 needs explicit SSE feature flags; other targets don't
+    let (cpu, features) = if runtime_triple.os == "darwin" && runtime_triple.arch == "x86_64" {
         ("generic", "+sse,+sse2,+sse3,+ssse3")
     } else {
         ("generic", "")

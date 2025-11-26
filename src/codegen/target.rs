@@ -175,6 +175,14 @@ impl TargetTriple {
             flags.push("-nostdlib".to_string());
         }
 
+        if self.os == "darwin" {
+            // sysinfo and other runtime bits rely on CoreFoundation + IOKit
+            flags.push("-framework".to_string());
+            flags.push("CoreFoundation".to_string());
+            flags.push("-framework".to_string());
+            flags.push("IOKit".to_string());
+        }
+
         flags
     }
 
