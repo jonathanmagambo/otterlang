@@ -2,7 +2,9 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 
 use crate::runtime::symbol_registry::{FfiType, SymbolRegistry};
-use crate::typecheck::types::{EnumDefinition, EnumLayout, TypeContext, TypeError, TypeInfo};
+use crate::typecheck::types::{
+    EnumDefinition, EnumLayout, StructDefinition, TypeContext, TypeError, TypeInfo,
+};
 use ast::nodes::{
     BinaryOp, Block, Expr, FStringPart, Function, Literal, Node, Pattern, Program, Statement, Type,
     UnaryOp, UseImport,
@@ -350,11 +352,18 @@ impl TypeChecker {
                         field_types.insert(field_name.clone(), ty);
                     }
 
+                    // TODO: Validate generic parameters
+                    let definition = StructDefinition {
+                        name: name.clone(),
+                        generics: generics.clone(),
+                        fields: field_types,
+                    };
+                    self.context.define_struct(definition);
+
+                    // Push generic parameters to context for method type checking
                     for generic in generics {
                         self.context.push_generic(generic.clone());
                     }
-
-                    self.context.define_struct(name.clone(), field_types);
 
                     for method in methods {
                         let method_name = format!("{}.{}", name, method.as_ref().name);
@@ -362,6 +371,7 @@ impl TypeChecker {
                         self.context.insert_function(method_name.clone(), sig);
                     }
 
+                    // Pop generic parameters
                     for _ in generics {
                         self.context.pop_generic();
                     }
@@ -591,23 +601,23 @@ impl TypeChecker {
         }
     }
 
-    fn infer_enum_generics_from_type(
+    fn infer_generics_from_type(
         &mut self,
         expected: &Node<Type>,
         actual: &TypeInfo,
-        definition: &EnumDefinition,
+        generics: &[String],
         inferred: &mut HashMap<String, TypeInfo>,
     ) {
         match expected.as_ref() {
             Type::Simple(name) => {
-                if definition.generics.contains(name) {
+                if generics.contains(name) {
                     inferred
                         .entry(name.clone())
                         .or_insert_with(|| actual.clone());
                 }
             }
             Type::Generic { base, args } => {
-                if definition.generics.contains(base) && args.is_empty() {
+                if generics.contains(base) && args.is_empty() {
                     inferred
                         .entry(base.clone())
                         .or_insert_with(|| actual.clone());
@@ -615,15 +625,15 @@ impl TypeChecker {
                     if let TypeInfo::List(inner) = actual
                         && let Some(sub_ty) = args.first()
                     {
-                        self.infer_enum_generics_from_type(sub_ty, inner, definition, inferred);
+                        self.infer_generics_from_type(sub_ty, inner, generics, inferred);
                     }
                 } else if base.eq_ignore_ascii_case("Dict") {
                     if let TypeInfo::Dict { key, value } = actual {
                         if let Some(key_ty) = args.first() {
-                            self.infer_enum_generics_from_type(key_ty, key, definition, inferred);
+                            self.infer_generics_from_type(key_ty, key, generics, inferred);
                         }
                         if let Some(val_ty) = args.get(1) {
-                            self.infer_enum_generics_from_type(val_ty, value, definition, inferred);
+                            self.infer_generics_from_type(val_ty, value, generics, inferred);
                         }
                     }
                 } else {
@@ -633,10 +643,10 @@ impl TypeChecker {
                             args: actual_args,
                         } if actual_base == base => {
                             for (expected_arg, actual_arg) in args.iter().zip(actual_args.iter()) {
-                                self.infer_enum_generics_from_type(
+                                self.infer_generics_from_type(
                                     expected_arg,
                                     actual_arg,
-                                    definition,
+                                    generics,
                                     inferred,
                                 );
                             }
@@ -647,10 +657,81 @@ impl TypeChecker {
                             ..
                         } if name == base => {
                             for (expected_arg, actual_arg) in args.iter().zip(actual_args.iter()) {
-                                self.infer_enum_generics_from_type(
+                                self.infer_generics_from_type(
                                     expected_arg,
                                     actual_arg,
-                                    definition,
+                                    generics,
+                                    inferred,
+                                );
+                            }
+                        }
+                        TypeInfo::Struct { name, .. } if name == base => {
+                            // Structs don't store args in TypeInfo yet, so we can't infer from them easily unless we change TypeInfo::Struct
+                            // But for now, we assume if names match, we might be good?
+                            // Actually, TypeInfo::Struct doesn't have args, so we can't infer from it.
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn infer_generics_from_type_info(
+        &mut self,
+        expected: &TypeInfo,
+        actual: &TypeInfo,
+        generics: &[String],
+        inferred: &mut HashMap<String, TypeInfo>,
+    ) {
+        match expected {
+            TypeInfo::Generic { base, args } => {
+                if generics.contains(base) && args.is_empty() {
+                    inferred
+                        .entry(base.clone())
+                        .or_insert_with(|| actual.clone());
+                } else if !args.is_empty() {
+                    match actual {
+                        TypeInfo::List(inner) if base.eq_ignore_ascii_case("List") => {
+                            if let Some(sub_ty) = args.first() {
+                                self.infer_generics_from_type_info(
+                                    sub_ty, inner, generics, inferred,
+                                );
+                            }
+                        }
+                        TypeInfo::Dict { key, value } if base.eq_ignore_ascii_case("Dict") => {
+                            if let Some(key_ty) = args.first() {
+                                self.infer_generics_from_type_info(key_ty, key, generics, inferred);
+                            }
+                            if let Some(val_ty) = args.get(1) {
+                                self.infer_generics_from_type_info(
+                                    val_ty, value, generics, inferred,
+                                );
+                            }
+                        }
+                        TypeInfo::Generic {
+                            base: actual_base,
+                            args: actual_args,
+                        } if actual_base == base => {
+                            for (expected_arg, actual_arg) in args.iter().zip(actual_args.iter()) {
+                                self.infer_generics_from_type_info(
+                                    expected_arg,
+                                    actual_arg,
+                                    generics,
+                                    inferred,
+                                );
+                            }
+                        }
+                        TypeInfo::Enum {
+                            name,
+                            args: actual_args,
+                            ..
+                        } if name == base => {
+                            for (expected_arg, actual_arg) in args.iter().zip(actual_args.iter()) {
+                                self.infer_generics_from_type_info(
+                                    expected_arg,
+                                    actual_arg,
+                                    generics,
                                     inferred,
                                 );
                             }
@@ -659,7 +740,33 @@ impl TypeChecker {
                     }
                 }
             }
+            TypeInfo::List(inner) => {
+                if let TypeInfo::List(actual_inner) = actual {
+                    self.infer_generics_from_type_info(inner, actual_inner, generics, inferred);
+                }
+            }
+            TypeInfo::Dict { key, value } => {
+                if let TypeInfo::Dict {
+                    key: actual_key,
+                    value: actual_value,
+                } = actual
+                {
+                    self.infer_generics_from_type_info(key, actual_key, generics, inferred);
+                    self.infer_generics_from_type_info(value, actual_value, generics, inferred);
+                }
+            }
+            _ => {}
         }
+    }
+
+    fn infer_enum_generics_from_type(
+        &mut self,
+        expected: &Node<Type>,
+        actual: &TypeInfo,
+        definition: &EnumDefinition,
+        inferred: &mut HashMap<String, TypeInfo>,
+    ) {
+        self.infer_generics_from_type(expected, actual, &definition.generics, inferred);
     }
 
     /// Bind variables from a pattern into the type checking context
@@ -735,10 +842,10 @@ impl TypeChecker {
             }
             Pattern::Struct { name, fields } => {
                 // Clone struct fields to avoid borrow conflicts
-                let struct_fields = self.context.get_struct(name).cloned();
-                if let Some(struct_fields) = struct_fields {
+                let struct_def = self.context.get_struct(name).cloned();
+                if let Some(struct_def) = struct_def {
                     for (field_name, nested_pattern) in fields {
-                        if let Some(field_type) = struct_fields.get(field_name) {
+                        if let Some(field_type) = struct_def.fields.get(field_name) {
                             if let Some(pattern) = nested_pattern {
                                 self.bind_pattern_variables(pattern, field_type);
                             } else {
@@ -2148,8 +2255,8 @@ impl TypeChecker {
                 }
                 Expr::Struct { name, fields } => {
                     // Get struct definition (clone to avoid borrow checker issues)
-                    let struct_fields = match self.context.get_struct(name) {
-                        Some(fields) => fields.clone(),
+                    let struct_def = match self.context.get_struct(name) {
+                        Some(def) => def.clone(),
                         None => {
                             self.errors.push(
                                 TypeError::new(format!("unknown struct type: {}", name))
@@ -2164,6 +2271,8 @@ impl TypeChecker {
 
                     // Check that all provided fields exist and have correct types
                     let mut provided_fields = std::collections::HashSet::new();
+                    let mut inferred_generics = HashMap::new();
+
                     for (field_name, field_expr) in fields {
                         if provided_fields.contains(field_name) {
                             self.errors.push(
@@ -2176,7 +2285,7 @@ impl TypeChecker {
                         }
                         provided_fields.insert(field_name.clone());
 
-                        let field_type = match struct_fields.get(field_name) {
+                        let field_type = match struct_def.fields.get(field_name) {
                             Some(ty) => ty,
                             None => {
                                 self.errors.push(
@@ -2187,7 +2296,8 @@ impl TypeChecker {
                                     .with_span(*span)
                                     .with_hint(format!(
                                         "Available fields: {}",
-                                        struct_fields
+                                        struct_def
+                                            .fields
                                             .keys()
                                             .cloned()
                                             .collect::<Vec<_>>()
@@ -2199,13 +2309,25 @@ impl TypeChecker {
                         };
 
                         let expr_type = self.infer_expr_type(field_expr)?;
-                        if !expr_type.is_compatible_with(field_type) {
+
+                        // Infer generics from field type
+                        self.infer_generics_from_type_info(
+                            field_type,
+                            &expr_type,
+                            &struct_def.generics,
+                            &mut inferred_generics,
+                        );
+
+                        // Substitute inferred generics into field type for checking
+                        let concrete_field_type = field_type.substitute(&inferred_generics);
+
+                        if !expr_type.is_compatible_with(&concrete_field_type) {
                             self.errors.push(
                                 TypeError::new(format!(
                                     "field '{}' of struct '{}' expects type {}, got {}",
                                     field_name,
                                     name,
-                                    field_type.display_name(),
+                                    concrete_field_type.display_name(),
                                     expr_type.display_name()
                                 ))
                                 .with_span(*span),
@@ -2213,8 +2335,8 @@ impl TypeChecker {
                         }
                     }
 
-                    // Check that all required fields are provided (for now, all fields are required)
-                    for field_name in struct_fields.keys() {
+                    // Check that all required fields are provided
+                    for field_name in struct_def.fields.keys() {
                         if !provided_fields.contains(field_name) {
                             self.errors.push(
                                 TypeError::new(format!(
@@ -2226,9 +2348,16 @@ impl TypeChecker {
                         }
                     }
 
+                    // Construct the concrete struct type with substituted fields
+                    let concrete_fields = struct_def
+                        .fields
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.substitute(&inferred_generics)))
+                        .collect();
+
                     Ok(TypeInfo::Struct {
                         name: name.clone(),
-                        fields: struct_fields,
+                        fields: concrete_fields,
                     })
                 }
                 Expr::Await(expr) => {

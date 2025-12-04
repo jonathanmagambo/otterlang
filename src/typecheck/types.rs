@@ -515,8 +515,8 @@ pub struct TypeContext {
     pub functions: HashMap<String, TypeInfo>,
     /// Generic type parameters in scope
     pub generic_params: Vec<String>,
-    /// Struct definitions: name -> (field_name -> field_type)
-    pub structs: HashMap<String, HashMap<String, TypeInfo>>,
+    /// Struct definitions: name -> definition
+    pub structs: HashMap<String, StructDefinition>,
     /// Type aliases: name -> actual type
     pub type_aliases: HashMap<String, TypeInfo>,
     /// Enum definitions available in the current module
@@ -579,11 +579,11 @@ impl TypeContext {
         self.generic_params.contains(&name.to_string())
     }
 
-    pub fn define_struct(&mut self, name: String, fields: HashMap<String, TypeInfo>) {
-        self.structs.insert(name, fields);
+    pub fn define_struct(&mut self, definition: StructDefinition) {
+        self.structs.insert(definition.name.clone(), definition);
     }
 
-    pub fn get_struct(&self, name: &str) -> Option<&HashMap<String, TypeInfo>> {
+    pub fn get_struct(&self, name: &str) -> Option<&StructDefinition> {
         self.structs.get(name)
     }
 
@@ -739,6 +739,13 @@ impl Default for TypeContext {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct StructDefinition {
+    pub name: String,
+    pub generics: Vec<String>,
+    pub fields: HashMap<String, TypeInfo>,
 }
 
 #[derive(Debug, Clone)]

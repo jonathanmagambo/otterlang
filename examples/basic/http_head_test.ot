@@ -1,7 +1,0 @@
-use http
-
-fn main():
-    println("Testing http module...")
-    let url = "http://example.com"
-    let status = http.head(url)
-    println(f"HEAD status: {status}")

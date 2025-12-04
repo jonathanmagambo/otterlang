@@ -1,0 +1,18 @@
+# Test generic struct instantiation
+
+struct Container<T>:
+    value: T
+
+fn main():
+    println("Testing generic struct instantiation")
+    
+    # Test with int
+    let c1 = Container(value=42)
+    println("Created container with int")
+    
+    # Test with list
+    let data = [1, 2, 3]
+    let c2 = Container(value=data)
+    println("Created container with list")
+    
+    println("Generic struct test passed!")

@@ -1,0 +1,54 @@
+
+enum Status<T>:
+    Pending
+    Processing: (float)
+    Completed: (T)
+    Failed: (str)
+
+struct Processor<T>:
+    id: int
+    data: List<T>
+
+    fn process(self) -> Status<int>:
+        println(f"Processor {self.id} starting...")
+        
+        # List comprehension
+        let squared = [x * x for x in self.data]
+        
+        # Simulate some work
+        let sum = 0
+        for val in squared:
+            sum = sum + val
+            
+        println(f"Processor {self.id} finished with sum: {sum}")
+        return Status.Completed(sum)
+
+fn main():
+    println("Advanced Syntax Test")
+    println("====================")
+
+    # 1. Generics and List Comprehension
+    let data = [1, 2, 3, 4, 5]
+    let p = Processor(id=1, data=data)
+
+    # 2. Spawn Task
+    spawn p.process()
+
+    # 3. Enum and Match
+    let status = Status.Processing(0.5)
+    match status:
+        case Status.Pending:
+            println("Status: Pending")
+        case Status.Processing(progress):
+            println(f"Status: Processing ({progress * 100}%)")
+        case Status.Completed(result):
+            println(f"Status: Completed with {result}")
+        case Status.Failed(err):
+            println(f"Status: Failed - {err}")
+
+    # 4. Dict Comprehension
+    # Testing if dictionary comprehensions work
+    let squares_map = {f"{x}": x*x for x in [1, 2, 3]}
+    println(f"Squares map: {squares_map}")
+
+    println("Main thread finished.")
