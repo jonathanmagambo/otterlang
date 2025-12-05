@@ -4,9 +4,9 @@ struct Point {
 }
 
 fn main() {
-    let start = Point { x: 42, y: -13 };
-    let round_trip: Point = test.struct_identity(start);
+    let start = Point { x: 42, y: -13 }
+    let round_trip: Point = test.struct_identity(start)
 
-    test.assert(round_trip.x == start.x, "struct identity should preserve x");
-    test.assert(round_trip.y == start.y, "struct identity should preserve y");
+    test.assert(round_trip.x == start.x, "struct identity should preserve x")
+    test.assert(round_trip.y == start.y, "struct identity should preserve y")
 }
