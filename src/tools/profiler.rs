@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use colored::Colorize;
 
-use crate::runtime::memory::profiler::{ProfilingStats, get_profiler};
+use otterc_runtime::memory::profiler::{ProfilingStats, get_profiler};
 
 /// Profile command for CLI integration
 #[derive(Clone, Debug, clap::Subcommand)]

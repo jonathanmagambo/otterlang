@@ -6,12 +6,12 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use crate::runtime::symbol_registry::SymbolRegistry;
-use crate::typecheck::{self, TypeChecker};
 use otterc_ast::nodes::{Expr, Function, Node, Program, Statement, Type};
 use otterc_lexer::{LexerError, Token, tokenize};
 use otterc_parser::parse;
 use otterc_span::Span;
+use otterc_symbol::registry::SymbolRegistry;
+use otterc_typecheck::{self, TypeChecker};
 use otterc_utils::errors::{
     Diagnostic as OtterDiagnostic, DiagnosticSeverity as OtterDiagSeverity,
 };
@@ -1287,10 +1287,14 @@ fn compute_lsp_diagnostics_and_symbols(text: &str) -> (Vec<Diagnostic>, SymbolTa
                 let diagnostics = {
                     let mut checker = TypeChecker::new().with_registry(SymbolRegistry::global());
                     if checker.check_program(&program).is_err() {
-                        typecheck::diagnostics_from_type_errors(checker.errors(), source_id, text)
-                            .into_iter()
-                            .map(|diag| otter_diag_to_lsp(DiagnosticKind::Type, &diag, text))
-                            .collect()
+                        otterc_typecheck::diagnostics_from_type_errors(
+                            checker.errors(),
+                            source_id,
+                            text,
+                        )
+                        .into_iter()
+                        .map(|diag| otter_diag_to_lsp(DiagnosticKind::Type, &diag, text))
+                        .collect()
                     } else {
                         Vec::new()
                     }

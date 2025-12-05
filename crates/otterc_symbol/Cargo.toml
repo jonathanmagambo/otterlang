@@ -1,0 +1,13 @@
+[package]
+name = "otterc_symbol"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+abi_stable = "0.11"
+ahash = "0.8"
+once_cell = "1.19"
+parking_lot = "0.12"
+
+[lints]
+workspace = true
