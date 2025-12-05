@@ -17,6 +17,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     
     steps:
+      - name: Clear space
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          # Not using dotnet
+          sudo rm -rf /usr/share/dotnet
+          sudo apt-get remove -y '^dotnet-.*'
+          # Not using any of these packages
+          sudo apt-get remove -y 'php.*'
+          sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel
+          # Clean up
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+      
       - uses: actions/checkout@v4
       
       - name: Install LLVM 18
