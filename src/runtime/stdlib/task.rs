@@ -337,7 +337,7 @@ pub unsafe extern "C" fn otter_builtin_select_case_create(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn otter_builtin_select_case_free(case: *mut SelectCase) {
     if !case.is_null() {
-        unsafe { drop(Box::from_raw(case)) };
+        unsafe { drop(Box::from_raw(case)) }
     }
 }
 

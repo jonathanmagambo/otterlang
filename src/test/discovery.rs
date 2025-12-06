@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "Printing to stderr is acceptable in tests"
+)]
+
 use anyhow::{Context, Result};
 use glob::glob;
 use std::path::{Path, PathBuf};
@@ -50,14 +55,12 @@ impl TestDiscovery {
         let source = std::fs::read_to_string(file_path)
             .with_context(|| format!("failed to read {}", file_path.display()))?;
 
-        let tokens = match tokenize(&source) {
-            Ok(tokens) => tokens,
-            Err(_) => return Ok(Vec::new()),
+        let Ok(tokens) = tokenize(&source) else {
+            return Ok(Vec::new());
         };
 
-        let program = match parse(&tokens) {
-            Ok(program) => program,
-            Err(_) => return Ok(Vec::new()),
+        let Ok(program) = parse(&tokens) else {
+            return Ok(Vec::new());
         };
 
         let mut tests = Vec::new();

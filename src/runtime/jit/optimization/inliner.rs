@@ -112,7 +112,10 @@ impl Inliner {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Combine these arguments into a struct"
+    )]
     fn inline_block(
         &self,
         block: &mut Node<Block>,
@@ -141,7 +144,10 @@ impl Inliner {
         block.as_mut().statements = transformed;
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Combine these arguments into a struct"
+    )]
     fn inline_statement(
         &self,
         stmt: Node<Statement>,
@@ -376,7 +382,10 @@ impl Inliner {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Combine these arguments into a struct"
+    )]
     fn inline_expr(
         &self,
         expr: &mut Node<Expr>,
@@ -518,7 +527,10 @@ impl Inliner {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Combine these arguments into a struct"
+    )]
     fn try_inline_expr(
         &self,
         expr: &mut Node<Expr>,
@@ -548,7 +560,10 @@ impl Inliner {
         None
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Combine these arguments into a struct"
+    )]
     fn try_inline_call(
         &self,
         callee_name: &str,
@@ -563,12 +578,9 @@ impl Inliner {
     ) -> Option<InlineSnippet> {
         stats.attempted += 1;
 
-        let callee = match ctx.function_map.get(callee_name) {
-            Some(func) => func,
-            None => {
-                stats.skipped_missing += 1;
-                return None;
-            }
+        let Some(callee) = ctx.function_map.get(callee_name) else {
+            stats.skipped_missing += 1;
+            return None;
         };
 
         if args.len() != callee.as_ref().params.len() {
@@ -717,7 +729,7 @@ struct InlineSnippet {
 struct InlineContext<'a> {
     function_map: &'a HashMap<String, Node<Function>>,
     hot_functions: &'a HashSet<String>,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     call_graph: &'a CallGraph,
 }
 

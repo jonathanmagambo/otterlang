@@ -24,7 +24,7 @@ pub struct ConcurrencyManager {
     scheduler: Rc<RwLock<UnifiedScheduler>>,
     thread_pool: Arc<AdaptiveThreadPool>,
     monitor: Arc<RwLock<SystemMonitor>>,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     analyzer: Arc<RwLock<WorkloadAnalyzer>>,
     rebalancer: RwLock<Rebalancer>,
 }

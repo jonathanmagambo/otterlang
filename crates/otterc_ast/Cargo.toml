@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 otterc_span.path = "../otterc_span"
+
+[lints]
+workspace = true

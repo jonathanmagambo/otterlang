@@ -10,7 +10,7 @@ use otterc_ast::nodes::{
 
 /// Re-optimizes hot functions
 pub struct Reoptimizer {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     opt_level: CodegenOptLevel,
     hot_functions: HashSet<String>,
     inliner: Inliner,
@@ -112,7 +112,7 @@ impl Reoptimizer {
             match self.simplify_statement(stmt) {
                 StatementTransform::Single(stmt) => rewritten.push(Node::new(*stmt, span)),
                 StatementTransform::Many(stmts) => {
-                    rewritten.extend(stmts.into_iter().map(|s| Node::new(s, span)))
+                    rewritten.extend(stmts.into_iter().map(|s| Node::new(s, span)));
                 }
                 StatementTransform::None => {}
             }

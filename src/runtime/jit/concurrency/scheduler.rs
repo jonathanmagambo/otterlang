@@ -39,7 +39,7 @@ impl UnifiedScheduler {
         let task_id = self.next_task_id.fetch_add(1, Ordering::SeqCst);
         let handle = TaskHandle::new(task_id);
 
-        self.task_sender.send(task).ok();
+        let _ = self.task_sender.send(task);
         self.pending_count.fetch_add(1, Ordering::SeqCst);
 
         handle
@@ -151,7 +151,7 @@ impl UnifiedScheduler {
 
         // Wait for all chunks to complete
         for handle in handles {
-            handle.join().ok();
+            let _ = handle.join();
         }
 
         running.fetch_sub(1, Ordering::SeqCst);

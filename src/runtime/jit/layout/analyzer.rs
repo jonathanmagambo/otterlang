@@ -7,7 +7,7 @@ use super::profiler::AccessPattern;
 pub struct CacheLocalityAnalyzer {
     cache_line_size: usize,
     l1_cache_size: usize,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     l2_cache_size: usize,
 }
 

@@ -51,6 +51,7 @@ pub unsafe extern "C" fn otter_std_sys_getenv(name: *const c_char) -> *mut c_cha
 }
 
 #[unsafe(no_mangle)]
+#[expect(clippy::exit, reason = "TODO: Use a more graceful shutdown mechanism")]
 pub extern "C" fn otter_std_sys_exit(code: i32) {
     std::process::exit(code);
 }

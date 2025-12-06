@@ -124,7 +124,6 @@ enum SymbolKind {
     Struct,
     Enum,
     TypeAlias,
-    #[allow(dead_code)]
     Method,
 }
 
@@ -323,7 +322,7 @@ impl Backend {
         }
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     async fn document_text(&self, uri: &Url) -> Option<String> {
         let state = self.state.read().await;
         state.documents.get(uri).cloned()
@@ -516,14 +515,18 @@ impl LanguageServer for Backend {
             for (name, info) in symbol_table.all_symbols() {
                 let kind = match info.kind {
                     SymbolKind::Function => tower_lsp::lsp_types::SymbolKind::FUNCTION,
-                    SymbolKind::Variable => tower_lsp::lsp_types::SymbolKind::VARIABLE,
-                    SymbolKind::Parameter => tower_lsp::lsp_types::SymbolKind::VARIABLE,
+                    SymbolKind::Variable | SymbolKind::Parameter => {
+                        tower_lsp::lsp_types::SymbolKind::VARIABLE
+                    }
                     SymbolKind::Struct => tower_lsp::lsp_types::SymbolKind::STRUCT,
                     SymbolKind::Enum => tower_lsp::lsp_types::SymbolKind::ENUM,
                     SymbolKind::TypeAlias => tower_lsp::lsp_types::SymbolKind::TYPE_PARAMETER,
                     SymbolKind::Method => tower_lsp::lsp_types::SymbolKind::METHOD,
                 };
-                #[allow(deprecated)]
+                #[expect(
+                    deprecated,
+                    reason = "We are not using this deprecated field but it's required for constructing DocumentSymbol"
+                )]
                 let symbol = DocumentSymbol {
                     name: name.clone(),
                     detail: info.ty.clone(),
@@ -556,8 +559,9 @@ impl LanguageServer for Backend {
                     if name.to_lowercase().contains(&query) {
                         let kind = match info.kind {
                             SymbolKind::Function => tower_lsp::lsp_types::SymbolKind::FUNCTION,
-                            SymbolKind::Variable => tower_lsp::lsp_types::SymbolKind::VARIABLE,
-                            SymbolKind::Parameter => tower_lsp::lsp_types::SymbolKind::VARIABLE,
+                            SymbolKind::Variable | SymbolKind::Parameter => {
+                                tower_lsp::lsp_types::SymbolKind::VARIABLE
+                            }
                             SymbolKind::Struct => tower_lsp::lsp_types::SymbolKind::STRUCT,
                             SymbolKind::Enum => tower_lsp::lsp_types::SymbolKind::ENUM,
                             SymbolKind::TypeAlias => {
@@ -565,7 +569,10 @@ impl LanguageServer for Backend {
                             }
                             SymbolKind::Method => tower_lsp::lsp_types::SymbolKind::METHOD,
                         };
-                        #[allow(deprecated)]
+                        #[expect(
+                            deprecated,
+                            reason = "We are not using this deprecated field but it's required for constructing SymbolInformation"
+                        )]
                         let info = SymbolInformation {
                             name: name.clone(),
                             kind,
@@ -719,9 +726,9 @@ impl LanguageServer for Backend {
         if let Some(symbol_table) = symbol_table {
             for (name, info) in symbol_table.all_symbols() {
                 let kind = match info.kind {
-                    SymbolKind::Function => CompletionItemKind::FUNCTION,
-                    SymbolKind::Variable => CompletionItemKind::VARIABLE,
-                    SymbolKind::Parameter => CompletionItemKind::VARIABLE,
+                    SymbolKind::Function | SymbolKind::Variable | SymbolKind::Parameter => {
+                        CompletionItemKind::VARIABLE
+                    }
                     SymbolKind::Struct => CompletionItemKind::STRUCT,
                     SymbolKind::Enum => CompletionItemKind::ENUM,
                     SymbolKind::TypeAlias => CompletionItemKind::TYPE_PARAMETER,
@@ -1097,7 +1104,7 @@ fn collect_references_from_statements(
                     text,
                 );
             }
-            Statement::Let { expr, .. } => {
+            Statement::Let { expr, .. } | Statement::Expr(expr) | Statement::Return(Some(expr)) => {
                 collect_references_from_expr(expr.as_ref(), table, tokens, text);
             }
             Statement::If {
@@ -1139,12 +1146,6 @@ fn collect_references_from_statements(
             Statement::While { cond, body } => {
                 collect_references_from_expr(cond.as_ref(), table, tokens, text);
                 collect_references_from_statements(&body.as_ref().statements, table, tokens, text);
-            }
-            Statement::Expr(expr) => {
-                collect_references_from_expr(expr.as_ref(), table, tokens, text);
-            }
-            Statement::Return(Some(expr)) => {
-                collect_references_from_expr(expr.as_ref(), table, tokens, text);
             }
             _ => {}
         }
@@ -1355,7 +1356,7 @@ fn word_at_position(text: &str, position: Position) -> Option<String> {
     Some(chars[start..=end].iter().collect())
 }
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "Work in progress")]
 fn collect_identifiers(text: &str) -> Vec<String> {
     let mut set = BTreeSet::new();
     for token in text.split(|c: char| !(c.is_alphanumeric() || c == '_')) {
@@ -1566,6 +1567,12 @@ fn find_call_context(text: &str, offset: usize) -> Option<(String, usize)> {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::print_stdout,
+        reason = "Printing to stdout is acceptable in tests"
+    )]
+    #![expect(clippy::panic, reason = "Panicking on test failures is acceptable")]
+
     use super::*;
 
     #[test]

@@ -1,3 +1,12 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "Printing to stdout is acceptable in examples"
+)]
+#![expect(
+    clippy::print_stderr,
+    reason = "Printing to stderr is acceptable in examples"
+)]
+
 use otterc_ffi::{DependencyConfig, generate_rustdoc_json};
 use std::fs;
 

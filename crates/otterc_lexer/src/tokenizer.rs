@@ -81,12 +81,13 @@ impl LexerError {
                     '`' => {
                         diag = diag.with_suggestion(
                             "Did you mean a single quote (') or double quote (\")?",
-                        )
+                        );
                     }
                     '~' => diag = diag.with_suggestion("Did you mean tilde (~) or negation (not)?"),
                     '@' => {
-                        diag = diag
-                            .with_suggestion("Did you mean the at symbol (@) or member access (.)?")
+                        diag = diag.with_suggestion(
+                            "Did you mean the at symbol (@) or member access (.)?",
+                        );
                     }
                     _ => {
                         if ch.is_ascii_punctuation() {
@@ -332,9 +333,8 @@ impl LexerState {
 
     fn tokenize_line_content(&mut self, start: usize) {
         while !self.is_at_end() {
-            let ch = match self.current_char() {
-                Some(ch) => ch,
-                None => break,
+            let Some(ch) = self.current_char() else {
+                break;
             };
 
             if self.current_newline_len().is_some() {

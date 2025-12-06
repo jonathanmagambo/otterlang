@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "Printing to stdout is acceptable in tests"
+)]
+#![expect(clippy::panic, reason = "Panicking on test failures is acceptable")]
+
 use otterc_ffi::{DependencyConfig, extract_crate_spec};
 
 #[test]
@@ -55,7 +61,7 @@ fn test_extract_serde() {
                         "   - struct {}{} {{ {} fields }}",
                         name,
                         if generics.is_empty() {
-                            "".to_string()
+                            String::new()
                         } else {
                             format!("<{}>", generics.join(", "))
                         },
@@ -239,27 +245,27 @@ pub mod nested {
             for item in &spec.items {
                 match item {
                     otterc_ffi::PublicItem::Function { sig, .. } => {
-                        println!("   - Function: {}", sig.name)
+                        println!("   - Function: {}", sig.name);
                     }
                     otterc_ffi::PublicItem::Method { sig, .. } => {
-                        println!("   - Method: {}", sig.name)
+                        println!("   - Method: {}", sig.name);
                     }
                     otterc_ffi::PublicItem::AssocFunction { sig, .. } => {
-                        println!("   - AssocFunction: {}", sig.name)
+                        println!("   - AssocFunction: {}", sig.name);
                     }
                     otterc_ffi::PublicItem::Const { name, .. } => println!("   - Const: {}", name),
                     otterc_ffi::PublicItem::Static { name, .. } => {
-                        println!("   - Static: {}", name)
+                        println!("   - Static: {}", name);
                     }
                     otterc_ffi::PublicItem::Struct { name, .. } => {
-                        println!("   - Struct: {}", name)
+                        println!("   - Struct: {}", name);
                     }
                     otterc_ffi::PublicItem::Enum { name, .. } => println!("   - Enum: {}", name),
                     otterc_ffi::PublicItem::TypeAlias { name, .. } => {
-                        println!("   - TypeAlias: {}", name)
+                        println!("   - TypeAlias: {}", name);
                     }
                     otterc_ffi::PublicItem::Module { name, .. } => {
-                        println!("   - Module: {}", name)
+                        println!("   - Module: {}", name);
                     }
                     otterc_ffi::PublicItem::Trait { name, .. } => println!("   - Trait: {}", name),
                 }

@@ -316,11 +316,11 @@ impl RuntimeIntrospector {
                 SortField::CodeSize => functions.sort_by(|a, b| b.code_size.cmp(&a.code_size)),
                 SortField::ExecutionTime => {
                     // Would need execution time in metrics
-                    functions.sort_by(|a, b| b.call_count.cmp(&a.call_count))
+                    functions.sort_by(|a, b| b.call_count.cmp(&a.call_count));
                 }
                 SortField::MemoryUsage => {
                     // Would need memory usage per function
-                    functions.sort_by(|a, b| a.name.cmp(&b.name))
+                    functions.sort_by(|a, b| a.name.cmp(&b.name));
                 }
             }
         }

@@ -310,11 +310,9 @@ impl<'ctx> Compiler<'ctx> {
         match stmt {
             Statement::Expr(expr)
             | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. } => {
-                self.collect_captured_names(expr.as_ref(), ctx, captures)
-            }
-            Statement::Return(Some(expr)) => {
-                self.collect_captured_names(expr.as_ref(), ctx, captures)
+            | Statement::Assignment { expr, .. }
+            | Statement::Return(Some(expr)) => {
+                self.collect_captured_names(expr.as_ref(), ctx, captures);
             }
             Statement::If {
                 cond,
@@ -341,7 +339,7 @@ impl<'ctx> Compiler<'ctx> {
                 self.collect_captured_names_in_block(body.as_ref(), ctx, captures);
             }
             Statement::Block(block) => {
-                self.collect_captured_names_in_block(block.as_ref(), ctx, captures)
+                self.collect_captured_names_in_block(block.as_ref(), ctx, captures);
             }
             Statement::Return(None)
             | Statement::Break
@@ -392,7 +390,7 @@ impl<'ctx> Compiler<'ctx> {
             return *func;
         }
         let callback_type = self.context.void_type().fn_type(&[], false);
-        #[allow(deprecated)]
+        #[expect(deprecated, reason = "TODO: Use Context::ptr_type instead")]
         let callback_ptr = callback_type.ptr_type(AddressSpace::default());
         let fn_type = self
             .context
@@ -405,14 +403,14 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     fn raw_ptr_type(&self) -> PointerType<'ctx> {
-        #[allow(deprecated)]
+        #[expect(deprecated, reason = "TODO: Use Context::ptr_type instead")]
         {
             self.context.i8_type().ptr_type(AddressSpace::default())
         }
     }
 
     fn struct_ptr_type(&self, ty: StructType<'ctx>) -> PointerType<'ctx> {
-        #[allow(deprecated)]
+        #[expect(deprecated, reason = "TODO: Use Context::ptr_type instead")]
         {
             ty.ptr_type(AddressSpace::default())
         }
@@ -1048,7 +1046,7 @@ impl<'ctx> Compiler<'ctx> {
     ) -> Result<IntValue<'ctx>> {
         let lhs_ty = lhs.ty.clone();
         match lhs_ty {
-            OtterType::I64 => {
+            OtterType::I64 | OtterType::Bool => {
                 let l = lhs.value.unwrap().into_int_value();
                 let r = rhs.value.unwrap().into_int_value();
                 Ok(self
@@ -1061,13 +1059,6 @@ impl<'ctx> Compiler<'ctx> {
                 Ok(self
                     .builder
                     .build_float_compare(inkwell::FloatPredicate::OEQ, l, r, "eq")?)
-            }
-            OtterType::Bool => {
-                let l = lhs.value.unwrap().into_int_value();
-                let r = rhs.value.unwrap().into_int_value();
-                Ok(self
-                    .builder
-                    .build_int_compare(IntPredicate::EQ, l, r, "eq")?)
             }
             OtterType::Str => {
                 let left_ptr = self.ensure_string_value(lhs.clone())?;
@@ -1132,7 +1123,7 @@ impl<'ctx> Compiler<'ctx> {
             bail!("Expected FString expression")
         };
 
-        let mut result = self.eval_literal(&Literal::String("".to_string()), None)?;
+        let mut result = self.eval_literal(&Literal::String(String::new()), None)?;
 
         for part in parts {
             let part_val = match part.as_ref() {
@@ -1217,14 +1208,11 @@ impl<'ctx> Compiler<'ctx> {
                 let val = self.context.bool_type().const_int(*b as u64, false);
                 Ok(EvaluatedValue::with_value(val.into(), OtterType::Bool))
             }
-            Literal::Unit => Ok(EvaluatedValue {
+            // Treat None as Unit for now
+            Literal::Unit | Literal::None => Ok(EvaluatedValue {
                 ty: OtterType::Unit,
                 value: None,
             }),
-            Literal::None => Ok(EvaluatedValue {
-                ty: OtterType::Unit,
-                value: None,
-            }), // Treat None as Unit for now
         }
     }
 
@@ -1525,12 +1513,11 @@ impl<'ctx> Compiler<'ctx> {
             OtterType::Unit => Ok(None),
             OtterType::Bool => Ok(Some(self.context.bool_type().into())),
             OtterType::I32 => Ok(Some(self.context.i32_type().into())),
-            OtterType::I64 => Ok(Some(self.context.i64_type().into())),
+            OtterType::I64 | OtterType::Opaque | OtterType::List(_) | OtterType::Map => {
+                Ok(Some(self.context.i64_type().into()))
+            }
             OtterType::F64 => Ok(Some(self.context.f64_type().into())),
             OtterType::Str => Ok(Some(self.string_ptr_type.into())),
-            OtterType::Opaque => Ok(Some(self.context.i64_type().into())),
-            OtterType::List(_) => Ok(Some(self.context.i64_type().into())),
-            OtterType::Map => Ok(Some(self.context.i64_type().into())),
             OtterType::Struct(id) => Ok(Some(self.struct_info(id).ty.into())),
             OtterType::Tuple(fields) => {
                 let mut llvm_fields = Vec::with_capacity(fields.len());
@@ -1634,7 +1621,10 @@ impl<'ctx> Compiler<'ctx> {
             }
 
             // Opaque type conversions (treat as i64)
-            (OtterType::Opaque, OtterType::I64) | (OtterType::I64, OtterType::Opaque) => {
+            (OtterType::Opaque, OtterType::I64) | (OtterType::I64, OtterType::Opaque)
+            // List/Map conversions (treat as opaque pointers)
+            | (OtterType::List(_) | OtterType::Map, OtterType::Opaque)
+            | (OtterType::Opaque, OtterType::List(_) | OtterType::Map) => {
                 Ok(value) // Already same representation
             }
             (OtterType::F64, OtterType::Opaque) => {
@@ -1694,12 +1684,6 @@ impl<'ctx> Compiler<'ctx> {
                     .builder
                     .build_int_compare(inkwell::IntPredicate::NE, int_val, zero, "opaque_to_bool")?
                     .into())
-            }
-
-            // List/Map conversions (treat as opaque pointers)
-            (OtterType::List(_) | OtterType::Map, OtterType::Opaque)
-            | (OtterType::Opaque, OtterType::List(_) | OtterType::Map) => {
-                Ok(value) // Already same representation
             }
 
             // Incompatible types
@@ -2401,7 +2385,10 @@ impl<'ctx> Compiler<'ctx> {
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Create a struct to hold these args"
+    )]
     fn eval_dict_comprehension(
         &mut self,
         full_expr: &Expr,
@@ -2627,7 +2614,7 @@ impl<'ctx> Compiler<'ctx> {
             Expr::Binary { left, right, .. } => self
                 .find_identifier_type_in_expr(left.as_ref().as_ref(), var)
                 .or_else(|| self.find_identifier_type_in_expr(right.as_ref().as_ref(), var)),
-            Expr::Unary { expr, .. } => {
+            Expr::Unary { expr, .. } | Expr::Await(expr) | Expr::Spawn(expr) => {
                 self.find_identifier_type_in_expr(expr.as_ref().as_ref(), var)
             }
             Expr::Call { func, args } => self
@@ -2719,9 +2706,6 @@ impl<'ctx> Compiler<'ctx> {
                 FStringPart::Expr(expr) => self.find_identifier_type_in_expr(expr.as_ref(), var),
                 _ => None,
             }),
-            Expr::Await(expr) | Expr::Spawn(expr) => {
-                self.find_identifier_type_in_expr(expr.as_ref().as_ref(), var)
-            }
             Expr::Struct { fields, .. } => fields
                 .iter()
                 .find_map(|(_, expr)| self.find_identifier_type_in_expr(expr.as_ref(), var)),
@@ -2737,11 +2721,12 @@ impl<'ctx> Compiler<'ctx> {
 
     fn find_identifier_type_in_statement(&self, stmt: &Statement, var: &str) -> Option<OtterType> {
         match stmt {
-            Statement::Expr(expr) => self.find_identifier_type_in_expr(expr.as_ref(), var),
-            Statement::Let { expr, .. } | Statement::Assignment { expr, .. } => {
+            Statement::Expr(expr)
+            | Statement::Return(Some(expr))
+            | Statement::Let { expr, .. }
+            | Statement::Assignment { expr, .. } => {
                 self.find_identifier_type_in_expr(expr.as_ref(), var)
             }
-            Statement::Return(Some(expr)) => self.find_identifier_type_in_expr(expr.as_ref(), var),
             Statement::Return(None)
             | Statement::Break
             | Statement::Continue
@@ -2853,9 +2838,11 @@ impl<'ctx> Compiler<'ctx> {
         if let (Expr::Member { object, field }, Some(enum_type @ TypeInfo::Enum { .. })) =
             (func_expr, self.expr_type(call_expr).cloned())
         {
-            let enum_name = match &enum_type {
-                TypeInfo::Enum { name, .. } => name,
-                _ => unreachable!(),
+            let TypeInfo::Enum {
+                name: enum_name, ..
+            } = &enum_type
+            else {
+                unreachable!()
             };
             if let Some(base) = self.member_base_name(object.as_ref().as_ref()) {
                 if base != enum_name {
@@ -2925,7 +2912,6 @@ impl<'ctx> Compiler<'ctx> {
         Ok(None)
     }
 
-    #[allow(clippy::collapsible_if)]
     fn try_build_enum_member(
         &mut self,
         expr: &Expr,
@@ -2933,17 +2919,16 @@ impl<'ctx> Compiler<'ctx> {
         field: &str,
         _ctx: &mut FunctionContext<'ctx>,
     ) -> Result<Option<EvaluatedValue<'ctx>>> {
-        if let Some(enum_type_ref @ TypeInfo::Enum { variants, .. }) = self.expr_type(expr) {
-            if let Some(variant) = variants.get(field)
-                && variant.fields.is_empty()
-            {
-                let enum_type = enum_type_ref.clone();
-                return Ok(Some(self.build_enum_value_from_type(
-                    &enum_type,
-                    field,
-                    Vec::new(),
-                )?));
-            }
+        if let Some(enum_type_ref @ TypeInfo::Enum { variants, .. }) = self.expr_type(expr)
+            && let Some(variant) = variants.get(field)
+            && variant.fields.is_empty()
+        {
+            let enum_type = enum_type_ref.clone();
+            return Ok(Some(self.build_enum_value_from_type(
+                &enum_type,
+                field,
+                Vec::new(),
+            )?));
         }
         Ok(None)
     }

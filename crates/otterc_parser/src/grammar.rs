@@ -1462,6 +1462,8 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::panic, reason = "Panicking on test failures is acceptable")]
+
     use super::*;
 
     #[test]

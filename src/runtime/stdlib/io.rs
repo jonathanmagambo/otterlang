@@ -59,6 +59,10 @@ pub unsafe extern "C" fn otter_std_io_print(message: *const c_char) {
 ///
 /// this function dereferences a raw pointer
 #[unsafe(no_mangle)]
+#[expect(
+    clippy::print_stdout,
+    reason = "We want to print to stdout with println"
+)]
 pub unsafe extern "C" fn otter_std_io_println(message: *const c_char) {
     if message.is_null() {
         println!();
@@ -77,6 +81,10 @@ pub unsafe extern "C" fn otter_std_io_println(message: *const c_char) {
 /// # Safety
 ///
 /// this function dereferences a raw pointer
+#[expect(
+    clippy::print_stderr,
+    reason = "We want to print to stderr with eprintln"
+)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn otter_std_io_eprintln(message: *const c_char) {
     unsafe {
@@ -85,12 +93,9 @@ pub unsafe extern "C" fn otter_std_io_eprintln(message: *const c_char) {
             return;
         }
 
-        let str_ref = match CStr::from_ptr(message).to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                eprintln!("[io.eprintln: invalid UTF-8]");
-                return;
-            }
+        let Ok(str_ref) = CStr::from_ptr(message).to_str() else {
+            eprintln!("[io.eprintln: invalid UTF-8]");
+            return;
         };
 
         eprintln!("{str_ref}");
@@ -102,14 +107,13 @@ pub extern "C" fn otter_std_io_read_line() -> *mut c_char {
     let mut line = String::new();
     let mut stdin = io::stdin().lock();
     match stdin.read_line(&mut line) {
-        Ok(0) => std::ptr::null_mut(),
+        Ok(0) | Err(_) => std::ptr::null_mut(),
         Ok(_) => {
             let trimmed = line.trim_end_matches(['\n', '\r']).to_string();
             CString::new(trimmed)
                 .map(CString::into_raw)
                 .unwrap_or_else(|_| std::ptr::null_mut())
         }
-        Err(_) => std::ptr::null_mut(),
     }
 }
 

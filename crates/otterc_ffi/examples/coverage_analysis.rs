@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "Printing to stdout is acceptable in examples"
+)]
+
 use otterc_ffi::{DependencyConfig, PublicItem, extract_crate_spec};
 
 fn main() {

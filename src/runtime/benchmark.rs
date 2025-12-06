@@ -285,8 +285,11 @@ impl Benchmark {
     {
         let name = self.name.clone();
         let result = self.run(f);
-        println!("Benchmark: {}", name);
-        println!("{}", result.stats.format());
+        #[expect(clippy::print_stdout, reason = "TODO: Use robust logging")]
+        {
+            println!("Benchmark: {}", name);
+            println!("{}", result.stats.format());
+        }
     }
 }
 

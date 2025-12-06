@@ -57,11 +57,10 @@ impl TypeChecker {
                 }
                 self.collect_generic_usages(return_type, used);
             }
-            TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
-                // Structs and Enums in TypeInfo are usually fully resolved or have their generics in args (if we added args to them)
-                // Current TypeInfo::Struct doesn't store args, which is a limitation if we want to track usage inside it.
-                // But usually `TypeInfo::Generic` covers the usage *of* a struct with generics.
-            }
+            // Structs and Enums in TypeInfo are usually fully resolved or have their generics in args (if we added args to them)
+            // Current TypeInfo::Struct doesn't store args, which is a limitation if we want to track usage inside it.
+            // But usually `TypeInfo::Generic` covers the usage *of* a struct with generics.
+            // TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => ..
             _ => {}
         }
     }
@@ -72,8 +71,7 @@ impl TypeChecker {
 
     fn merge_unknown_like_types(left: &TypeInfo, right: &TypeInfo) -> TypeInfo {
         match (Self::is_unknown_like(left), Self::is_unknown_like(right)) {
-            (false, false) => left.clone(),
-            (false, true) => left.clone(),
+            (false, false) | (false, true) => left.clone(),
             (true, false) => right.clone(),
             (true, true) => match (left, right) {
                 (
@@ -356,7 +354,7 @@ impl TypeChecker {
                 self.collect_metadata_in_block(body.as_ref(), spans, expr_ids);
             }
             Statement::Block(block) => {
-                self.collect_metadata_in_block(block.as_ref(), spans, expr_ids)
+                self.collect_metadata_in_block(block.as_ref(), spans, expr_ids);
             }
         }
     }
@@ -821,7 +819,7 @@ impl TypeChecker {
 
     /// Check function with generic type parameters
     /// This handles functions that have generic type parameters in their signature
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     fn check_function_with_generics(&mut self, function: &Node<Function>) -> Result<()> {
         // Extract generic type parameters from function signature
         let mut generic_params = Vec::new();
@@ -854,7 +852,6 @@ impl TypeChecker {
     }
 
     /// Extract generic type parameter names from a type
-    #[allow(dead_code)]
     fn extract_generic_params(&self, ty: &Node<Type>, params: &mut Vec<String>) {
         match ty.as_ref() {
             Type::Simple(name) => {
@@ -892,19 +889,16 @@ impl TypeChecker {
             && let Expr::Identifier(enum_name) = object.as_ref().as_ref()
             && let Some(definition) = self.context.get_enum(enum_name).cloned()
         {
-            let variant = match definition
+            let Some(variant) = definition
                 .variants
                 .iter()
                 .find(|variant| variant.name == *field)
-            {
-                Some(v) => v,
-                None => {
-                    self.errors.push(
-                        TypeError::new(format!("enum '{}' has no variant '{}'", enum_name, field))
-                            .with_span(*object.span()),
-                    );
-                    return Ok(Some(TypeInfo::Error));
-                }
+            else {
+                self.errors.push(
+                    TypeError::new(format!("enum '{}' has no variant '{}'", enum_name, field))
+                        .with_span(*object.span()),
+                );
+                return Ok(Some(TypeInfo::Error));
             };
 
             let expected_len = variant.fields.len();
@@ -1251,11 +1245,8 @@ impl TypeChecker {
 
     fn validate_pattern_against_type(&mut self, pattern: &Node<Pattern>, ty: &TypeInfo) {
         match pattern.as_ref() {
-            Pattern::Wildcard => {
-                // Wildcard matches any type
-            }
-            Pattern::Identifier(_) => {
-                // Identifier binds any type
+            Pattern::Wildcard | Pattern::Identifier(_) => {
+                // Wildcard and Identifier binds any type
             }
             Pattern::Literal(lit) => {
                 // Check literal type matches expected type
@@ -1703,8 +1694,7 @@ impl TypeChecker {
                     }
                     Literal::String(_) => TypeInfo::Str,
                     Literal::Bool(_) => TypeInfo::Bool,
-                    Literal::None => TypeInfo::Unit,
-                    Literal::Unit => TypeInfo::Unit,
+                    Literal::None | Literal::Unit => TypeInfo::Unit,
                 }),
                 Expr::Identifier(name) => {
                     if let Some(var_type) = self.context.get_variable(name) {
@@ -1751,15 +1741,9 @@ impl TypeChecker {
                             // Numeric operations
                             match (&left_type, &right_type) {
                                 // String concatenation (must come before numeric patterns)
-                                (TypeInfo::Str, TypeInfo::Str) if matches!(op, BinaryOp::Add) => {
-                                    Ok(TypeInfo::Str)
-                                }
-                                (TypeInfo::Str, TypeInfo::I64 | TypeInfo::I32)
-                                    if matches!(op, BinaryOp::Add) =>
-                                {
-                                    Ok(TypeInfo::Str)
-                                }
-                                (TypeInfo::I64 | TypeInfo::I32, TypeInfo::Str)
+                                (TypeInfo::Str, TypeInfo::Str)
+                                | (TypeInfo::Str, TypeInfo::I64 | TypeInfo::I32)
+                                | (TypeInfo::I64 | TypeInfo::I32, TypeInfo::Str)
                                     if matches!(op, BinaryOp::Add) =>
                                 {
                                     Ok(TypeInfo::Str)
@@ -2299,14 +2283,12 @@ impl TypeChecker {
                                 Ok(TypeInfo::Error)
                             }
                         }
-                        TypeInfo::List(_) => Ok(TypeInfo::Unknown),
-                        TypeInfo::Dict { .. } => Ok(TypeInfo::Unknown),
+                        TypeInfo::List(_) | TypeInfo::Dict { .. } => Ok(TypeInfo::Unknown),
                         TypeInfo::Error => {
                             // Special handling for Error type fields
                             match field.as_str() {
-                                "message" => Ok(TypeInfo::Str),
+                                "message" | "data" => Ok(TypeInfo::Str),
                                 "code" => Ok(TypeInfo::I32),
-                                "data" => Ok(TypeInfo::Str),
                                 _ => {
                                     self.errors.push(TypeError::new(format!(
                                         "Error type has no field '{}'. Available fields: message, code, data",
@@ -2701,27 +2683,24 @@ impl TypeChecker {
                         }
                         provided_fields.insert(field_name.clone());
 
-                        let field_type = match struct_def.fields.get(field_name) {
-                            Some(ty) => ty,
-                            None => {
-                                self.errors.push(
-                                    TypeError::new(format!(
-                                        "struct '{}' has no field '{}'",
-                                        name, field_name
-                                    ))
-                                    .with_span(*span)
-                                    .with_hint(format!(
-                                        "Available fields: {}",
-                                        struct_def
-                                            .fields
-                                            .keys()
-                                            .cloned()
-                                            .collect::<Vec<_>>()
-                                            .join(", ")
-                                    )),
-                                );
-                                continue;
-                            }
+                        let Some(field_type) = struct_def.fields.get(field_name) else {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "struct '{}' has no field '{}'",
+                                    name, field_name
+                                ))
+                                .with_span(*span)
+                                .with_hint(format!(
+                                    "Available fields: {}",
+                                    struct_def
+                                        .fields
+                                        .keys()
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )),
+                            );
+                            continue;
                         };
 
                         let expr_type = self.infer_expr_type(field_expr)?;
@@ -2882,11 +2861,6 @@ impl TypeChecker {
         span: &Span,
     ) -> TypeInfo {
         match self.infer_expr_type(object) {
-            Ok(TypeInfo::Module(_)) => TypeInfo::Function {
-                params: vec![],
-                param_defaults: vec![],
-                return_type: Box::new(TypeInfo::Unknown),
-            },
             Ok(TypeInfo::Struct { name, .. }) => {
                 let method_name = format!("{}.{}", name, field);
                 self.context
@@ -2920,10 +2894,10 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
         FfiType::Unit => TypeInfo::Unit,
         FfiType::Bool => TypeInfo::Bool,
         FfiType::I32 => TypeInfo::I32,
-        FfiType::I64 => TypeInfo::I64,
+        // Opaque handles are i64 at type level
+        FfiType::I64 | FfiType::Opaque => TypeInfo::I64,
         FfiType::F64 => TypeInfo::F64,
         FfiType::Str => TypeInfo::Str,
-        FfiType::Opaque => TypeInfo::I64, // Opaque handles are i64 at type level
         FfiType::List => TypeInfo::List(Box::new(TypeInfo::Unknown)),
         FfiType::Map => TypeInfo::Dict {
             key: Box::new(TypeInfo::Unknown),

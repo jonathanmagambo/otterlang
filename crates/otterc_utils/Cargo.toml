@@ -7,3 +7,6 @@ edition = "2024"
 ariadne = "0.3"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 otterc_span.path = "../otterc_span"
+
+[lints]
+workspace = true

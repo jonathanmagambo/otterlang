@@ -162,7 +162,7 @@ impl AppState {
     /// Get lines of input
     pub fn input_lines(&self) -> Vec<String> {
         if self.input.is_empty() {
-            vec!["".to_string()]
+            vec![String::new()]
         } else {
             self.input.lines().map(|s| s.to_string()).collect()
         }

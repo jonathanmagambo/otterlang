@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "Printing to stdout is acceptable in tests"
+)]
+
 use colored::*;
 use std::time::Duration;
 

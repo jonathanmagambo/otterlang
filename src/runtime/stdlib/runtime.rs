@@ -27,11 +27,11 @@ static ACTIVE_GOROUTINES: AtomicU64 = AtomicU64::new(0);
 // Track runtime statistics
 #[derive(Default)]
 struct RuntimeStats {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     total_tasks: u64,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     completed_tasks: u64,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     active_threads: usize,
     heap_bytes: usize,
     cpu_count: usize,

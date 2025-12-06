@@ -160,8 +160,16 @@ impl ReplEngine {
     }
 
     fn parse_expression(&self, input: &str) -> Result<Expr> {
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "TODO: Use the provided error when reporting"
+        )]
         let tokens =
             tokenize(input).map_err(|_| anyhow::anyhow!("failed to tokenize expression"))?;
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "TODO: Use the provided error when reporting"
+        )]
         let program = parse(&tokens).map_err(|_| anyhow::anyhow!("failed to parse expression"))?;
 
         if let Some(stmt) = program.statements.first()

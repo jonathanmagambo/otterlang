@@ -18,7 +18,10 @@ impl BumpAllocator {
         let memory = unsafe { alloc(layout) };
 
         if memory.is_null() {
-            panic!("Failed to allocate nursery memory");
+            #[expect(clippy::panic, reason = "TODO: Use proper error handling")]
+            {
+                panic!("Failed to allocate nursery memory");
+            }
         }
 
         Self {

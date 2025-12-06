@@ -5,3 +5,6 @@ edition = "2024"
 
 [dependencies]
 otterc_ast.path = "../otterc_ast"
+
+[lints]
+workspace = true

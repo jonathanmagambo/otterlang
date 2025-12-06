@@ -18,7 +18,6 @@ use super::profiler::GlobalProfiler;
 use super::specialization::{Specializer, TypeTracker};
 
 /// Function pointer type for different signatures
-#[allow(non_camel_case_types)]
 pub enum FunctionPtr {
     NoArgs(unsafe extern "C" fn() -> u64),
     OneArg(unsafe extern "C" fn(u64) -> u64),
@@ -67,30 +66,28 @@ impl CompiledFunction {
 
 /// JIT execution engine that compiles programs and executes functions dynamically
 pub struct JitEngine {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     context: LlvmContext,
     profiler: GlobalProfiler,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     specializer: Specializer,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     type_tracker: TypeTracker,
-    #[allow(dead_code)]
     function_cache: FunctionCache,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     inliner: Inliner,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     reoptimizer: Reoptimizer,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     memory_manager: AdaptiveMemoryManager,
     concurrency_manager: AdaptiveConcurrencyManager,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     symbol_registry: &'static SymbolRegistry,
     // Runtime state
     compiled_library: Arc<Mutex<Option<Arc<Library>>>>,
     compiled_functions: Arc<Mutex<HashMap<String, CompiledFunction>>>,
     temp_dir: TempDir,
     program: Option<Program>,
-    #[allow(dead_code)]
     library_path: Arc<Mutex<Option<std::path::PathBuf>>>,
 }
 
