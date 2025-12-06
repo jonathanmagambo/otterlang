@@ -405,19 +405,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console"
-version = "0.15.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
-dependencies = [
- "encode_unicode",
- "libc",
- "once_cell",
- "unicode-width 0.2.0",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "const_panic"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -698,12 +685,6 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
-
-[[package]]
-name = "encode_unicode"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "equivalent"
@@ -1071,19 +1052,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indicatif"
-version = "0.17.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
-dependencies = [
- "console",
- "number_prefix",
- "portable-atomic",
- "unicode-width 0.2.0",
- "web-time",
-]
-
-[[package]]
 name = "indoc"
 version = "2.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1307,15 +1275,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
-name = "memmap2"
-version = "0.9.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "744133e4a0e0a658e1374cf3bf8e415c4052a15a111acd372764c55b4177d490"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1363,12 +1322,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
-
-[[package]]
-name = "number_prefix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "object"
@@ -1423,14 +1376,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "otterc_ffi"
+name = "otterc_codegen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "inkwell",
+ "libloading 0.8.9",
+ "otterc_ast",
+ "otterc_config",
+ "otterc_ffi",
+ "otterc_span",
+ "otterc_symbol",
+ "otterc_typecheck",
+]
+
+[[package]]
+name = "otterc_config"
+version = "0.1.0"
+dependencies = [
+ "inkwell",
+]
+
+[[package]]
+name = "otterc_ffi"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "anyhow",
+ "cargo_metadata",
  "duct",
+ "inventory",
  "libloading 0.8.9",
  "once_cell",
  "otterc_cache",
+ "otterc_symbol",
  "parking_lot",
  "serde",
  "serde_json",
@@ -1445,10 +1424,6 @@ version = "0.1.0"
 dependencies = [
  "otterc_ast",
 ]
-
-[[package]]
-name = "otterc_language"
-version = "0.1.0"
 
 [[package]]
 name = "otterc_lexer"
@@ -1482,8 +1457,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "otterc_runtime"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ahash",
+ "anyhow",
+ "chrono",
+ "crossbeam-channel",
+ "crossbeam-deque",
+ "crossbeam-utils",
+ "inkwell",
+ "inventory",
+ "libc",
+ "libloading 0.8.9",
+ "libm",
+ "once_cell",
+ "otterc_ast",
+ "otterc_codegen",
+ "otterc_config",
+ "otterc_ffi",
+ "otterc_symbol",
+ "otterc_typecheck",
+ "parking_lot",
+ "rayon",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "ureq",
+]
+
+[[package]]
 name = "otterc_span"
 version = "0.1.0"
+
+[[package]]
+name = "otterc_symbol"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ahash",
+ "once_cell",
+ "parking_lot",
+]
+
+[[package]]
+name = "otterc_typecheck"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "otterc_ast",
+ "otterc_config",
+ "otterc_span",
+ "otterc_symbol",
+ "otterc_utils",
+]
 
 [[package]]
 name = "otterc_utils"
@@ -1498,55 +1529,36 @@ dependencies = [
 name = "otterlang"
 version = "0.1.0"
 dependencies = [
- "abi_stable",
- "ahash",
  "anyhow",
- "ariadne",
- "cargo_metadata",
  "chrono",
- "chumsky",
  "clap",
  "colored",
- "crossbeam-channel",
- "crossbeam-deque",
- "crossbeam-utils",
  "crossterm 0.29.0",
  "directories",
- "duct",
  "glob",
- "indicatif",
- "inkwell",
- "inventory",
  "libc",
- "libloading 0.8.9",
- "libm",
- "memmap2",
- "once_cell",
  "otterc_ast",
  "otterc_cache",
+ "otterc_codegen",
+ "otterc_config",
  "otterc_ffi",
  "otterc_fmt",
- "otterc_language",
  "otterc_lexer",
  "otterc_module",
  "otterc_parser",
+ "otterc_runtime",
  "otterc_span",
+ "otterc_symbol",
+ "otterc_typecheck",
  "otterc_utils",
- "parking_lot",
  "ratatui",
  "rayon",
  "serde",
  "serde_json",
- "serde_yaml",
- "sha1",
- "sysinfo",
- "tempfile",
- "thiserror",
  "tokio",
  "toml",
  "tower-lsp",
  "tracing",
- "tracing-subscriber",
  "ureq",
 ]
 
@@ -1616,12 +1628,6 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
-
-[[package]]
-name = "portable-atomic"
-version = "1.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
 
 [[package]]
 name = "potential_utf"
@@ -2588,16 +2594,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f218a38c84bcb33c25ec7059b07847d465ce0e0a76b995e134a45adcb6af76"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "web-time"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
 ]
 
 [[package]]

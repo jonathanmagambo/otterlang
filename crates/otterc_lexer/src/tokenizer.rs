@@ -1,8 +1,8 @@
 use crate::token::{Token, TokenKind};
 use otterc_span::Span;
 
-use thiserror::Error;
 use otterc_utils::errors::{Diagnostic, DiagnosticSeverity};
+use thiserror::Error;
 
 #[derive(Debug, Error, Clone)]
 pub enum LexerError {

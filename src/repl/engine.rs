@@ -1,13 +1,12 @@
 use anyhow::{Context, Result, bail};
 
-use crate::runtime::ffi;
-use crate::runtime::jit::executor::JitExecutor;
-use crate::runtime::symbol_registry::SymbolRegistry;
-use crate::typecheck::TypeChecker;
 use otterc_ast::nodes::{Block, Expr, Function, Node, Program, Statement};
 use otterc_lexer::tokenize;
 use otterc_parser::parse;
+use otterc_runtime::jit::executor::JitExecutor;
 use otterc_span::Span;
+use otterc_symbol::registry::SymbolRegistry;
+use otterc_typecheck::TypeChecker;
 
 /// Result of an evaluation
 #[derive(Debug, Clone)]
@@ -33,12 +32,12 @@ pub struct ReplEngine {
 
 impl ReplEngine {
     pub fn new() -> Self {
-        ffi::bootstrap_stdlib();
+        otterc_ffi::bootstrap_stdlib();
         Self {
             program: Program {
                 statements: Vec::new(),
             },
-            symbol_registry: ffi::bootstrap_stdlib(),
+            symbol_registry: otterc_ffi::bootstrap_stdlib(),
             executor: None,
         }
     }
@@ -109,8 +108,8 @@ impl ReplEngine {
             self.program.statements.push(stmt);
         }
 
-        let mut type_checker = TypeChecker::new()
-            .with_registry(crate::runtime::symbol_registry::SymbolRegistry::global());
+        let mut type_checker =
+            TypeChecker::new().with_registry(otterc_symbol::registry::SymbolRegistry::global());
         if let Err(e) = type_checker.check_program(&self.program) {
             for _ in 0..num_statements {
                 self.program.statements.pop();

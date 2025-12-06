@@ -1,0 +1,19 @@
+[package]
+name = "otterc_codegen"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+otterc_ast.path = "../otterc_ast"
+otterc_config.path = "../otterc_config"
+otterc_ffi.path = "../otterc_ffi"
+otterc_span.path = "../otterc_span"
+otterc_symbol.path = "../otterc_symbol"
+otterc_typecheck.path = "../otterc_typecheck"
+
+anyhow = "1.0"
+inkwell = { version = "0.x", features = ["llvm18-1"] }
+libloading = "0.8"
+
+[lints]
+workspace = true

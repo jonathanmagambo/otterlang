@@ -5,22 +5,18 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use colored::Colorize;
 use tracing::{debug, info, warn};
 
-use crate::codegen::{
-    self, BuildArtifact, CodegenOptLevel, CodegenOptions, TargetTriple, build_executable,
-};
-use crate::runtime::ffi;
-use crate::runtime::symbol_registry::SymbolRegistry;
-use crate::typecheck::{self, TypeChecker};
-use crate::version::VERSION;
-use colored::Colorize;
 use otterc_cache::{CacheBuildOptions, CacheEntry, CacheManager, CacheMetadata, CompilationInputs};
+use otterc_codegen::{BuildArtifact, build_executable};
+use otterc_config::{CodegenOptLevel, CodegenOptions, LanguageFeatureFlags, TargetTriple, VERSION};
 use otterc_ffi::{BridgeSymbolRegistry, FunctionSpec, TypeSpec};
-use otterc_language::LanguageFeatureFlags;
 use otterc_lexer::{LexerError, tokenize};
 use otterc_module::ModuleProcessor;
 use otterc_parser::{ParserError, parse};
+use otterc_symbol::registry::SymbolRegistry;
+use otterc_typecheck::TypeChecker;
 use otterc_utils::errors::{Diagnostic, emit_diagnostics};
 use otterc_utils::logger;
 use otterc_utils::profiler::{PhaseTiming, Profiler};
@@ -140,7 +136,7 @@ pub enum Command {
 pub fn run() -> Result<()> {
     logger::init_logging();
     maybe_auto_update()?;
-    ffi::bootstrap_stdlib();
+    otterc_ffi::bootstrap_stdlib();
     let cli = OtterCli::parse();
 
     match &cli.command {
@@ -417,7 +413,7 @@ pub fn compile_pipeline(
     })?;
 
     // Register Rust FFI functions for type checking (before type checking)
-    let registry = crate::runtime::symbol_registry::SymbolRegistry::global();
+    let registry = otterc_symbol::registry::SymbolRegistry::global();
     profiler.record_phase("Register FFI Functions", || {
         register_rust_ffi_functions_for_typecheck(&program, registry)
     })?;
@@ -434,8 +430,11 @@ pub fn compile_pipeline(
         profiler.record_phase("Type Checking", || type_checker.check_program(&program));
 
     if let Err(err) = type_check_result {
-        let diagnostics =
-            typecheck::diagnostics_from_type_errors(type_checker.errors(), &source_id, source);
+        let diagnostics = otterc_typecheck::diagnostics_from_type_errors(
+            type_checker.errors(),
+            &source_id,
+            source,
+        );
         emit_diagnostics(&diagnostics, source);
         return Err(err).with_context(|| "type checking failed");
     }
@@ -513,7 +512,7 @@ pub fn compile_pipeline(
         build_duration_ms as u64,
         PathBuf::from("./cache"), // cache_path
     )
-    .with_llvm_version(codegen::current_llvm_version());
+    .with_llvm_version(otterc_codegen::current_llvm_version());
 
     if let Err(e) = cache_manager.store(&metadata) {
         warn!("Failed to store cache entry: {}", e);
@@ -1034,7 +1033,7 @@ fn register_bridge_functions_for_typecheck(
     functions: &[FunctionSpec],
     registry: &SymbolRegistry,
 ) -> Result<()> {
-    use crate::runtime::symbol_registry::{FfiFunction, FfiSignature, FfiType};
+    use otterc_symbol::registry::{FfiFunction, FfiSignature, FfiType};
 
     if functions.is_empty() {
         return Ok(());
@@ -1098,8 +1097,8 @@ fn type_spec_to_ffi_helper(
     spec: &TypeSpec,
     position: &str,
     function_name: &str,
-) -> Result<crate::runtime::symbol_registry::FfiType> {
-    use crate::runtime::symbol_registry::FfiType;
+) -> Result<otterc_symbol::registry::FfiType> {
+    use otterc_symbol::registry::FfiType;
 
     match spec {
         TypeSpec::Unit => {
