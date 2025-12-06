@@ -30,7 +30,9 @@
   <a href="CONTRIBUTING.md"><b>Contributing</b></a>
 </h3>
 
-## Quick Start
+<h1 align="center">Quick Start</h1>
+
+Get started with OtterLang in just a few commands:
 
 ```bash
 git clone https://github.com/jonathanmagambo/otterlang.git
@@ -51,7 +53,7 @@ EOF
 
 See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed installation and usage instructions.
 
-## Getting Started
+<h1 align="center">Getting Started</h1>
 
 1. Install Rust nightly (`rustup toolchain install nightly`) and ensure LLVM 18 is available (or simply run `nix develop`).
 2. Build the toolchain: `cargo +nightly build --release`.
@@ -59,16 +61,16 @@ See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed installati
 
 The [Getting Started Guide](docs/GETTING_STARTED.md) expands on editor setup, cache usage, the REPL, and snapshot testing.
 
-## Language Features
+<h1 align="center">Language Features</h1>
 
 OtterLang pairs indentation-aware syntax with modern language constructs:
 
-- **Whitespace-driven grammar** – no braces or semicolons, just `fn`, blocks, and meaningful indentation.
-- **Static typing with inference** – optional annotations, tuples, enums, and generics.
-- **Structured error handling** – `Result<T, E>` enum with pattern matching plus `panic`/`recover` utilities.
-- **Async task runtime** – `spawn` and `await` built on the Otter task scheduler.
-- **Generational GC** – explicit root APIs (`gc.alloc`, `gc.add_root`, `gc.remove_root`) keep FFI safe.
-- **Transparent Rust FFI** – import any crate with `use rust:crate_name` and call it directly.
+1. **Whitespace-driven grammar** – no braces or semicolons, just `fn`, blocks, and meaningful indentation.
+2. **Static typing with inference** – optional annotations, tuples, enums, and generics.
+3. **Structured error handling** – `Result<T, E>` enum with pattern matching plus `panic`/`recover` utilities.
+4. **Async task runtime** – `spawn` and `await` built on the Otter task scheduler.
+5. **Generational GC** – explicit root APIs (`gc.alloc`, `gc.add_root`, `gc.remove_root`) keep FFI safe.
+6. **Transparent Rust FFI** – import any crate with `use rust:crate_name` and call it directly.
 
 ### Transparent Rust FFI
 
@@ -78,10 +80,10 @@ The compiler shells out to `cargo`/rustdoc, normalizes the crate’s public API,
 
 Built-in modules cover IO, math, JSON, tasks, runtime helpers, strings, networking, testing, and more. The [API Reference](docs/API_REFERENCE.md) documents every exported function.
 
- Only the true language primitives (enums, `Option`/`Result`, `panic`, `print`, `len`, strings, lists, maps, and arithmetic) live in the implicit prelude. All other stdlib functionality now follows a Python-style import model—`use http`, `use yaml`, `use task`, etc.—and nothing outside the prelude is visible until you import the module you need.
+Only the true language primitives (enums, `Option`/`Result`, `panic`, `print`, `len`, strings, lists, maps, and arithmetic) live in the implicit prelude. All other stdlib functionality now follows a Python-style import model—`use http`, `use yaml`, `use task`, etc.—and nothing outside the prelude is visible until you import the module you need.
 
 
-## Command Line Interface
+<h1 align="center">Command Line Interface</h1>
 
 The `otter` binary drives every workflow:
 
@@ -95,15 +97,15 @@ otter test path/to/tests        # Run snapshot-style tests
 
 Cross-compilation targets (including WebAssembly) are described in [docs/WEBASSEMBLY.md](docs/WEBASSEMBLY.md).
 
-## Examples
+<h1 align="center">Examples</h1>
 
 Browse [docs/EXAMPLES.md](docs/EXAMPLES.md) and the `examples/` tree for runnable snippets that stress the parser, runtime, and FFI bridge.
 
-## VSCode Extension
+<h1 align="center">VSCode Extension</h1>
 
 We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and an LSP server. Installation and release notes live in [vscode-extension/README.md](vscode-extension/README.md).
 
-## Documentation
+<h1 align="center">Documentation</h1>
 
 - **[Language Specification](docs/LANGUAGE_SPEC.md)** – grammar, semantics, runtime model.
 - **[Getting Started](docs/GETTING_STARTED.md)** – installation, CLI walkthrough, first project.
@@ -113,7 +115,7 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 - **[FFI Guide](docs/FFI_GUIDE.md)** – transparent Rust crate import workflow.
 - **[WebAssembly](docs/WEBASSEMBLY.md)** – compiling OtterLang programs to WASM targets.
 
-## Status
+<h1 align="center">Project Status</h1>
 
 **Early Access (v0.1.0)** – experimental tooling, expect sharp edges.
 
@@ -123,3 +125,17 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 - Transparent Rust FFI exposes functions and methods, but macros/proc-macros are ignored and structs/enums cross the boundary as opaque handles (see [FFI Guide](docs/FFI_GUIDE.md#limitations)).
 - WebAssembly builds run without filesystem access or full FFI support, so many stdlib modules (`io`, `net`, `task`) are unavailable in that target ([details](docs/WEBASSEMBLY.md#limitations)).
 - Building the toolchain currently requires LLVM 18 and Rust nightly because the bridge generator depends on nightly-only rustdoc features.
+
+<h1 align="center">Contributing and License</h1>
+
+> [!IMPORTANT]
+> OtterLang is currently in **Early Access (v0.1.0)** and is being actively developed. The project is experimental, and you may encounter sharp edges. **If you plan to contribute to the project, now is the time to provide a helping hand for the hardworking team**. Your contributions during this early stage will help shape the future of OtterLang.
+
+OtterLang is free and open source, released under the **BSD-3-Clause License**. The license allows you to:
+
+- View the source code and learn from it
+- Use it for any purpose, including commercial use
+- Modify and distribute the code
+- Use it in proprietary software
+
+Contributions are welcome with open arms as we look to foster a community. Please proceed to take a look at [CONTRIBUTING.md](./CONTRIBUTING.md) for more information on how to get started, as well as the codebase to learn from it. We sincerely and deeply are grateful and thankful for your efforts.
