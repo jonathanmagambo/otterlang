@@ -107,6 +107,8 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 
 <h1 align="center">Documentation</h1>
 
+<div align="center">
+
 - **[Language Specification](docs/LANGUAGE_SPEC.md)** – grammar, semantics, runtime model.
 - **[Getting Started](docs/GETTING_STARTED.md)** – installation, CLI walkthrough, first project.
 - **[Examples](docs/EXAMPLES.md)** – curated sample programs.
@@ -114,6 +116,8 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 - **[API Reference](docs/API_REFERENCE.md)** – stdlib module documentation.
 - **[FFI Guide](docs/FFI_GUIDE.md)** – transparent Rust crate import workflow.
 - **[WebAssembly](docs/WEBASSEMBLY.md)** – compiling OtterLang programs to WASM targets.
+
+</div>
 
 <h1 align="center">Project Status</h1>
 
