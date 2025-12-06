@@ -95,10 +95,10 @@ impl<T> TaskChannel<T> {
     pub fn try_recv(&self) -> Option<T> {
         let mut queue = self.inner.queue.lock();
         let value = queue.pop_front();
-        if value.is_some() {
-            if let Some(metrics) = &self.inner.metrics {
-                metrics.record_channel_backlog(-1);
-            }
+        if value.is_some()
+            && let Some(metrics) = &self.inner.metrics
+        {
+            metrics.record_channel_backlog(-1);
         }
         value
     }
@@ -142,10 +142,10 @@ impl<T> TaskChannel<T> {
         for waker in wakers.drain(..) {
             waker.wake();
         }
-        if pending > 0 {
-            if let Some(metrics) = &self.inner.metrics {
-                metrics.record_channel_waiters(-pending);
-            }
+        if pending > 0
+            && let Some(metrics) = &self.inner.metrics
+        {
+            metrics.record_channel_waiters(-pending);
         }
 
         // Wake blocking receivers
