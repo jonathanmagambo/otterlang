@@ -32,9 +32,9 @@ Get started with OtterLang in just a few commands:
 git clone https://github.com/jonathanmagambo/otterlang.git
 cd otterlang
 
-# Environment setup (requires Rust nightly + LLVM 18)
+# Environment setup (Nix provides Rust nightly + LLVM 18)
 nix develop            # recommended shell with all dependencies
-cargo +nightly build --release
+cargo build --release
 
 # Create and run your first program
 cat > hello.ot << 'EOF'
@@ -49,8 +49,8 @@ See the [Getting Started Guide](docs/GETTING_STARTED.md) for detailed installati
 
 <h1 align="center">Getting Started</h1>
 
-1. Install Rust nightly (`rustup toolchain install nightly`) and ensure LLVM 18 is available (or simply run `nix develop`).
-2. Build the toolchain: `cargo +nightly build --release`.
+1. **Using Nix (recommended)**: Run `nix develop` to enter the development environment, then `cargo build --release`.
+2. **Manual installation**: Install Rust nightly (`rustup toolchain install nightly`) and LLVM 18, then build with `cargo +nightly build --release`.
 3. Run code with `otter run file.ot` or emit binaries with `otter build file.ot -o my_app`.
 
 The [Getting Started Guide](docs/GETTING_STARTED.md) expands on editor setup, cache usage, the REPL, and snapshot testing.

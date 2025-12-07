@@ -74,8 +74,8 @@ Nix provides a reproducible development environment with all dependencies:
 # Enter the development environment
 nix develop
 
-# Build the compiler
-cargo +nightly build --release
+# Build the compiler (nightly toolchain is set as default in Nix)
+cargo build --release
 ```
 
 The Nix flake automatically provides:
