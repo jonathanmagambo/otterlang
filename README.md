@@ -1,11 +1,13 @@
-<h1 align="center">OtterLang</h1>
-
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://github.com/jonathanmagambo/otterlang/blob/main/image.png?raw=true" width="400">
     <img src="https://github.com/jonathanmagambo/otterlang/blob/main/image.png?raw=true" width="400" alt="OtterLang Logo" />
   </picture>
-  <br>
+</div>
+
+<h1 align="center">OtterLang</h1>
+
+<div align="center">
   <strong>Simple syntax, native performance, transparent Rust FFI.</strong>
   <br><br>
   
