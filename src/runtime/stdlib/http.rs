@@ -52,9 +52,8 @@ pub extern "C" fn otter_std_http_post(
     body: *const c_char,
     content_type: *const c_char,
 ) -> *mut c_char {
-    let url = match read_c_string(url) {
-        Some(u) => u,
-        None => return std::ptr::null_mut(),
+    let Some(url) = read_c_string(url) else {
+        return std::ptr::null_mut();
     };
     let body = read_c_string(body).unwrap_or_default();
     let content_type =

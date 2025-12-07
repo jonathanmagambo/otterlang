@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "We want to print to stderr with eprintln in test assertions"
+)]
+
 use std::ffi::CStr;
 use std::os::raw::c_char;
 
@@ -30,6 +35,7 @@ pub unsafe extern "C" fn otter_test_assert(condition: bool, message: *const c_ch
     };
 
     eprintln!("Assertion failed: {}", msg);
+    #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
     std::process::exit(1);
 }
 
@@ -71,6 +77,7 @@ pub unsafe extern "C" fn otter_test_assert_eq(
     };
 
     eprintln!("{}", msg);
+    #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
     std::process::exit(1);
 }
 
@@ -112,6 +119,7 @@ pub unsafe extern "C" fn otter_test_assert_ne(
     };
 
     eprintln!("{}", msg);
+    #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
     std::process::exit(1);
 }
 
@@ -149,6 +157,7 @@ pub unsafe extern "C" fn otter_test_assert_approx_eq(
     };
 
     eprintln!("{}", msg);
+    #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
     std::process::exit(1);
 }
 
@@ -287,6 +296,7 @@ pub unsafe extern "C" fn otter_test_snapshot(name: *const c_char, value: *const 
                 eprintln!("Snapshot mismatch for '{}':", name_str);
                 eprintln!("  Expected: {}", expected);
                 eprintln!("  Got:      {}", value_str);
+                #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
                 std::process::exit(1);
             }
         }
@@ -296,6 +306,7 @@ pub unsafe extern "C" fn otter_test_snapshot(name: *const c_char, value: *const 
                 name_str
             );
             eprintln!("  Value: {}", value_str);
+            #[expect(clippy::exit, reason = "TODO: Use a more robust panic mechanism here")]
             std::process::exit(1);
         }
     }

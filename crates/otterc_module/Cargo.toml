@@ -10,3 +10,6 @@ otterc_parser.path = "../otterc_parser"
 
 anyhow = "1.0"
 tempfile = "3.10"
+
+[lints]
+workspace = true

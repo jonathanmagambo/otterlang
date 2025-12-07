@@ -8,3 +8,6 @@ thiserror = "1.0"
 
 otterc_span.path = "../otterc_span"
 otterc_utils.path = "../otterc_utils"
+
+[lints]
+workspace = true

@@ -95,14 +95,8 @@ members = ["crates/*"]
 [patch.crates-io]
 llvm-sys = { path = "vendor/llvm-sys" }
 
-# enable everything lint-wise, set priority to -1 for easy override
-[workspace.lints.clippy.pedantic]
-level = "warn"
-priority = -1
-
-[workspace.lints.clippy.nursery]
-level = "warn"
-priority = -1
+[lints]
+workspace = true
 
 [workspace.lints.clippy.suspicious]
 level = "warn"
@@ -116,55 +110,43 @@ priority = -1
 level = "warn"
 priority = -1
 
-[workspace.lints.clippy.restriction]
-level = "warn"
-priority = -1
-
-# allowlist
 [workspace.lints.clippy]
+allow_attributes.level = "warn"
+allow_attributes_without_reason.level = "warn"
+dbg_macro.level = "warn"
+enum_glob_use.level = "warn"
+exit.level = "warn"
+macro_use_imports.level = "warn"
+manual_let_else.level = "warn"
+manual_string_new.level = "warn"
+map_err_ignore.level = "warn"
+match_same_arms.level = "warn"
+option_as_ref_cloned.level = "warn"
+option_option.level = "warn"
+panic.level = "deny"
+print_stderr.level = "warn"
+print_stdout.level = "warn"
+ref_options.level = "warn"
+self_named_module_files.level = "warn"
+semicolon_if_nothing_returned.level = "warn"
+semicolon_inside_block.level = "warn"
+try_err.level = "warn"
+unused_result_ok.level = "warn"
 
-# implicit_return is allowable because it is idiomatic
-implicit_return.level = "allow"
-
-# missing_trait_methods is allowable because otherwise it forces the
-# programmer to rewrite already written trait methods, which is
-# unnecessary and time-consuming
-missing_trait_methods.level = "allow"
-
-# float_arithmetic is allowable because we are not developing on platforms
-# that cannot support it
-float_arithmetic.level = "allow"
-
-# as_conversions is allowable because we already check all other as-
-# conversions, this lint activates regardless of if the proper checks
-# are in place
-as_conversions.level = "allow"
-
-# blanket_clippy_restriction_lints is allowable because we are actively
-# disabling restriction lints that are unnecessary
-blanket_clippy_restriction_lints.level = "allow"
-
-# separated_literal_suffix is allowable because it is purely stylistic
-separated_literal_suffix.level = "allow"
-
-# mod_module_files is allowable because it is stylistic
-mod_module_files.level = "allow"
-
-# wildcard_enum_match_arm is allowable because it disables the use of a
-# wildcard pattern, making code less concise and more unreadable
-wildcard_enum_match_arm.level = "allow"
-
-# pub_with_shorthand is allowable because rustfmt auto-formats certain
-# uses of pub without the shorthand to be shorthand.
-pub_with_shorthand.level = "allow"
-
-# pub_use is allowable because oftentimes you may re-export one, or multiple,
-# things, only restriction for this project is pub use with glob
-pub_use.level = "allow"
-
-# multiple_inherent_impl is allowable because we enforce that items - unless
-# explicitly said otherwise - must be sorted alphabetically; in our case, it
-# also makes sense that constructors are at the top of the impl-s for a type,
-# so it makes sense to separate - at least - constructors from the rest of the
-# impl-s.
-multiple_inherent_impl.level = "allow"
+# These are useful lints that we want, however at the moment they introduce *many* warnings
+# that will take time to fix. We will come back later to enable these one by one and resolve
+# their warnings.
+# exhaustive_enums.level = "warn"
+# exhaustive_structs.level = "warn"
+# module_name_repetitions.level = "warn"
+# needless_pass_by_value.level = "warn"
+# non_std_lazy_statics.level = "warn"
+# same_name_method.level = "warn"
+# similar_names.level = "warn"
+# todo.level = "deny"
+# unimplemented.level = "deny"
+# unreachable.level = "deny"
+# unused_async.level = "warn"
+# unused_self.level = "warn"
+# unused_trait_names.level = "warn"
+# unwrap_used.level = "warn"

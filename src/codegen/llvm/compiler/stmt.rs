@@ -155,12 +155,14 @@ impl<'ctx> Compiler<'ctx> {
                 }
                 Ok(())
             }
-            Statement::Pass => Ok(()),
-            Statement::Struct { .. } => Ok(()), // Handled at module level
-            Statement::Enum { .. } => Ok(()),   // Handled at module level
-            Statement::TypeAlias { .. } => Ok(()), // Handled at module level
-            Statement::Function(_) => Ok(()),   // Handled at module level
-            Statement::Use { .. } => Ok(()),    // Handled at module level
+            Statement::Pass
+            | Statement::Struct { .. }
+            // Handled at module level
+            | Statement::Enum { .. }
+            | Statement::TypeAlias { .. }
+            | Statement::Function(_)
+            | Statement::Use { .. }
+            | Statement::PubUse { .. } => Ok(()),
             Statement::For {
                 var,
                 iterable,
@@ -172,7 +174,6 @@ impl<'ctx> Compiler<'ctx> {
                 function,
                 ctx,
             ),
-            Statement::PubUse { .. } => Ok(()), // Handled at module level
             Statement::Block(block) => self.lower_block(block.as_ref(), function, ctx),
         }
     }
@@ -580,10 +581,13 @@ impl<'ctx> Compiler<'ctx> {
                 if args.is_empty() {
                     // This is a bare generic type parameter (e.g., "T")
                     // This should have been substituted by the type checker
-                    eprintln!(
-                        "WARNING: Unsubstituted generic type parameter '{}' encountered in codegen, treating as Opaque",
-                        base
-                    );
+                    #[expect(clippy::print_stderr, reason = "TODO: Use robust logging")]
+                    {
+                        eprintln!(
+                            "WARNING: Unsubstituted generic type parameter '{}' encountered in codegen, treating as Opaque",
+                            base
+                        );
+                    }
                     Some(OtterType::Opaque)
                 } else {
                     // This is a generic type with arguments (e.g., "List<T>")
@@ -598,10 +602,13 @@ impl<'ctx> Compiler<'ctx> {
                         }
                         "Dict" | "dict" => Some(OtterType::Map),
                         _ => {
-                            eprintln!(
-                                "WARNING: Unknown generic type '{}' with args, treating as Opaque",
-                                base
-                            );
+                            #[expect(clippy::print_stderr, reason = "TODO: Use robust logging")]
+                            {
+                                eprintln!(
+                                    "WARNING: Unknown generic type '{}' with args, treating as Opaque",
+                                    base
+                                );
+                            }
                             Some(OtterType::Opaque)
                         }
                     }
@@ -914,7 +921,7 @@ impl<'ctx> Compiler<'ctx> {
         Ok(Some(decoded_value))
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     fn prepare_iter_element_for_store(
         &mut self,
         raw_value: BasicValueEnum<'ctx>,
@@ -922,8 +929,12 @@ impl<'ctx> Compiler<'ctx> {
     ) -> Result<Option<BasicValueEnum<'ctx>>> {
         let value = match element_type {
             OtterType::Unit => return Ok(None),
-            OtterType::I64 | OtterType::Opaque | OtterType::List(_) | OtterType::Map => raw_value,
-            OtterType::Struct(_) | OtterType::Tuple(_) => raw_value,
+            OtterType::I64
+            | OtterType::Opaque
+            | OtterType::List(_)
+            | OtterType::Map
+            | OtterType::Struct(_)
+            | OtterType::Tuple(_) => raw_value,
             OtterType::I32 => {
                 let int_val = raw_value.into_int_value();
                 self.builder

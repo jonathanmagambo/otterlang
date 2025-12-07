@@ -53,10 +53,9 @@ impl TypeSpec {
             TypeSpec::Unit => "()",
             TypeSpec::Bool => "bool",
             TypeSpec::I32 => "i32",
-            TypeSpec::I64 => "i64",
+            TypeSpec::I64 | TypeSpec::Opaque => "i64",
             TypeSpec::F64 => "f64",
             TypeSpec::Str => "*const ::std::os::raw::c_char",
-            TypeSpec::Opaque => "i64",
         }
     }
 
@@ -64,11 +63,9 @@ impl TypeSpec {
         match self {
             TypeSpec::Unit => "()",
             TypeSpec::Bool => "false",
-            TypeSpec::I32 => "0",
-            TypeSpec::I64 => "0",
+            TypeSpec::I32 | TypeSpec::I64 | TypeSpec::Opaque => "0",
             TypeSpec::F64 => "0.0",
             TypeSpec::Str => "::std::ptr::null_mut()",
-            TypeSpec::Opaque => "0",
         }
     }
 

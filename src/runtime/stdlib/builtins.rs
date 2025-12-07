@@ -21,7 +21,6 @@ fn next_handle_id() -> HandleId {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum Value {
     Unit,
     Bool(bool),
@@ -110,7 +109,6 @@ pub(crate) fn encode_runtime_value(value: &Value) -> u64 {
 pub fn decode_value_kind(encoded: u64) -> ValueKind {
     let tag = (encoded >> TAG_SHIFT) as u8;
     match tag {
-        0 => ValueKind::Unit,
         1 => ValueKind::Bool,
         2 => ValueKind::I64,
         3 => ValueKind::F64,
@@ -1043,7 +1041,14 @@ pub unsafe extern "C" fn otter_builtin_panic(msg: *const c_char) {
     });
 
     // Use Rust's panic mechanism
-    panic!("{}", message);
+
+    #[expect(
+        clippy::panic,
+        reason = "TODO: Use a more robust panic handling mechanism"
+    )]
+    {
+        panic!("{}", message);
+    }
 }
 
 // ============================================================================

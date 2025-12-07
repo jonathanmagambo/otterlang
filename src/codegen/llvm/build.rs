@@ -474,13 +474,13 @@ pub fn build_executable(
 
     // Clean up temporary files
     if let Some(ref rt_c) = runtime_c {
-        fs::remove_file(rt_c).ok();
+        fs::remove_file(rt_c)?;
     }
     if let Some(ref rt_o) = runtime_o {
-        fs::remove_file(rt_o).ok();
+        fs::remove_file(rt_o)?;
     }
 
-    fs::remove_file(&object_path).ok();
+    fs::remove_file(&object_path)?;
 
     Ok(BuildArtifact {
         binary: output.to_path_buf(),
@@ -793,12 +793,12 @@ pub fn build_shared_library(
 
     // Clean up temporary files
     if let Some(ref rt_c) = runtime_c {
-        fs::remove_file(rt_c).ok();
+        fs::remove_file(rt_c)?;
     }
     if let Some(ref rt_o) = runtime_o {
-        fs::remove_file(rt_o).ok();
+        fs::remove_file(rt_o)?;
     }
-    fs::remove_file(&object_path).ok();
+    fs::remove_file(&object_path)?;
 
     Ok(BuildArtifact {
         binary: lib_path,

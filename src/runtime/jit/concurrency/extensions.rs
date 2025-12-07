@@ -94,10 +94,9 @@ impl WorkloadAdapter for DefaultWorkloadAdapter {
         let cpu_count = sysinfo::System::new().cpus().len().max(1);
 
         match workload_type {
-            WorkloadType::CpuBound => cpu_count * 2,
+            WorkloadType::CpuBound | WorkloadType::Mixed => cpu_count * 2,
             WorkloadType::IoBound => cpu_count * 4,
             WorkloadType::GpuBound => cpu_count,
-            WorkloadType::Mixed => cpu_count * 2,
         }
     }
 }

@@ -10,3 +10,6 @@ otterc_utils.path = "../otterc_utils"
 otterc_ast.path = "../otterc_ast"
 
 chumsky = "0.9"
+
+[lints]
+workspace = true

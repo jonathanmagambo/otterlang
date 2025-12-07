@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "TODO: Use robust logging"
+)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -859,9 +865,17 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
         let source = fs::read_to_string(&file_path)
             .with_context(|| format!("failed to read {}", file_path.display()))?;
 
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "TODO: Use the provided error when reporting"
+        )]
         let tokens = tokenize(&source)
             .map_err(|_| anyhow::anyhow!("failed to tokenize {}", file_path.display()))?;
 
+        #[expect(
+            clippy::map_err_ignore,
+            reason = "TODO: Use the provided error when reporting"
+        )]
         let program = parse(&tokens)
             .map_err(|_| anyhow::anyhow!("failed to parse {}", file_path.display()))?;
 
@@ -987,6 +1001,7 @@ fn handle_test(
     reporter.print_summary();
 
     if reporter.has_failures() {
+        #[expect(clippy::exit, reason = "It's desired to exit immediately here")]
         std::process::exit(1);
     }
 

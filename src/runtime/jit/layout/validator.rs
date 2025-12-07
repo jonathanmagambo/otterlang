@@ -2,7 +2,7 @@ use super::LayoutOptimization;
 
 /// Validates that layout optimizations are safe to apply
 pub struct LayoutValidator {
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     validation_rules: Vec<ValidationRule>,
 }
 

@@ -162,17 +162,22 @@ impl TypeInfo {
             | (TypeInfo::I32, TypeInfo::I32)
             | (TypeInfo::I64, TypeInfo::I64)
             | (TypeInfo::F64, TypeInfo::F64)
-            | (TypeInfo::Str, TypeInfo::Str) => true,
-
+            | (TypeInfo::Str, TypeInfo::Str)
             // Numeric promotions
-            (TypeInfo::I32, TypeInfo::I64) | (TypeInfo::I32, TypeInfo::F64) => true,
-            (TypeInfo::I64, TypeInfo::F64) => true,
-
+            | (TypeInfo::I32, TypeInfo::I64) | (TypeInfo::I32, TypeInfo::F64)
+            | (TypeInfo::I64, TypeInfo::F64)
             // Unknown types are compatible with anything (during inference)
-            (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown) => true,
+            | (TypeInfo::Unknown, _) | (_, TypeInfo::Unknown)
+            // Error types are compatible with strings (for convenience) and themselves
+            | (TypeInfo::Error, TypeInfo::Error)
+            | (TypeInfo::Str, TypeInfo::Error) // Allow raising strings as errors
+            | (TypeInfo::Error, _) // Error types are not compatible with anything else
+            | (_, TypeInfo::Error) => false, // Nothing else is compatible with Error (except strings above)
 
             // Struct types must match exactly
-            (TypeInfo::Struct { name: n1, .. }, TypeInfo::Struct { name: n2, .. }) => n1 == n2,
+            (TypeInfo::Struct { name: n1, .. }, TypeInfo::Struct { name: n2, .. })
+            // Module types are compatible with themselves
+            | (TypeInfo::Module(n1), TypeInfo::Module(n2)) => n1 == n2,
 
             // Generic types must match structure
             (
@@ -283,16 +288,6 @@ impl TypeInfo {
                     && d1.iter().zip(d2.iter()).all(|(a, b)| a == b)
                     && r1.is_compatible_with(r2)
             }
-
-            // Module types are compatible with themselves
-            (TypeInfo::Module(n1), TypeInfo::Module(n2)) => n1 == n2,
-
-            // Error types are compatible with strings (for convenience) and themselves
-            (TypeInfo::Error, TypeInfo::Error) => true,
-            (TypeInfo::Str, TypeInfo::Error) => true, // Allow raising strings as errors
-            (TypeInfo::Error, _) => false, // Error types are not compatible with anything else
-            (_, TypeInfo::Error) => false, // Nothing else is compatible with Error (except strings above)
-
             _ => false,
         }
     }

@@ -132,7 +132,7 @@ pub fn extract_crate_spec(_dep: &DependencyConfig) -> Result<CrateSpec> {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "This is a work in process")]
 struct Rustdoc {
     index: serde_json::Map<String, serde_json::Value>,
     paths: serde_json::Map<String, serde_json::Value>,
@@ -178,9 +178,8 @@ fn normalize(name: String, version: Option<String>, doc: Rustdoc) -> CrateSpec {
 
     // Iterate through all items in the index
     for (item_id, item_value) in &doc.index {
-        let item_obj = match item_value.as_object() {
-            Some(obj) => obj,
-            None => continue,
+        let Some(item_obj) = item_value.as_object() else {
+            continue;
         };
 
         // Get the path for this item
@@ -599,7 +598,6 @@ fn extract_enum_variant(
     {
         if let Some(kind_str) = variant_inner.get("kind").and_then(Value::as_str) {
             match kind_str {
-                "plain" => EnumVariantKind::Unit,
                 "tuple" => {
                     let mut fields = Vec::new();
                     if let Some(fields_arr) = variant_inner.get("fields").and_then(Value::as_array)
@@ -811,15 +809,13 @@ fn extract_impl_items(
 ) {
     use serde_json::Value;
 
-    let impl_obj = match impl_obj.as_object() {
-        Some(obj) => obj,
-        None => return,
+    let Some(impl_obj) = impl_obj.as_object() else {
+        return;
     };
 
     // Get the type this impl is for
-    let for_val = match impl_obj.get("for") {
-        Some(val) => val,
-        None => return,
+    let Some(for_val) = impl_obj.get("for") else {
+        return;
     };
     let impl_for = parse_rust_type(for_val, &[]).unwrap_or(RustTypeRef::Opaque);
 

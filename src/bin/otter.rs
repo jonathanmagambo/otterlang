@@ -9,7 +9,10 @@ fn main() -> anyhow::Result<()> {
         {
             std::process::exit(1);
         }
-        eprintln!("Error: {:?}", e);
+        #[expect(clippy::print_stderr, reason = "TODO: Use robust logging")]
+        {
+            eprintln!("Error: {}", msg);
+        }
         std::process::exit(1);
     }
     Ok(())
@@ -17,6 +20,8 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![expect(clippy::panic, reason = "Panicking on test failures is acceptable")]
+
     use clap::Parser;
     use otterlang::cli::{Command, OtterCli};
 

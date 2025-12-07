@@ -1,3 +1,5 @@
+#![expect(clippy::print_stdout, reason = "TODO: Use robust logging")]
+
 //! Profiler CLI tool for OtterLang
 //!
 //! Provides command-line interface for profiling OtterLang programs

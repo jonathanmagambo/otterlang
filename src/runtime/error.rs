@@ -215,7 +215,7 @@ pub extern "C" fn otter_error_has_error() -> bool {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn otter_error_rethrow() {
-    ErrorStack::rethrow()
+    ErrorStack::rethrow();
 }
 
 #[cfg(test)]

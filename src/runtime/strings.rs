@@ -71,13 +71,11 @@ pub unsafe extern "C" fn otter_str_concat(s1: *const c_char, s2: *const c_char) 
     }
 
     unsafe {
-        let str1 = match CStr::from_ptr(s1).to_str() {
-            Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
+        let Ok(str1) = CStr::from_ptr(s1).to_str() else {
+            return std::ptr::null_mut();
         };
-        let str2 = match CStr::from_ptr(s2).to_str() {
-            Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
+        let Ok(str2) = CStr::from_ptr(s2).to_str() else {
+            return std::ptr::null_mut();
         };
 
         let result = format!("{}{}", str1, str2);
@@ -168,13 +166,11 @@ pub unsafe extern "C" fn otter_string_equal(s1: *const c_char, s2: *const c_char
     }
 
     unsafe {
-        let str1 = match CStr::from_ptr(s1).to_str() {
-            Ok(s) => s,
-            Err(_) => return 0,
+        let Ok(str1) = CStr::from_ptr(s1).to_str() else {
+            return 0;
         };
-        let str2 = match CStr::from_ptr(s2).to_str() {
-            Ok(s) => s,
-            Err(_) => return 0,
+        let Ok(str2) = CStr::from_ptr(s2).to_str() else {
+            return 0;
         };
 
         if str1 == str2 { 1 } else { 0 }

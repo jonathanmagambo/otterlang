@@ -35,20 +35,19 @@ pub struct Compiler<'ctx> {
     pub(crate) context: &'ctx InkwellContext,
     pub(crate) builder: Builder<'ctx>,
     pub(crate) module: Module<'ctx>,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     pub(crate) fpm: PassManager<FunctionValue<'ctx>>,
     pub(crate) symbol_registry: &'static SymbolRegistry,
     pub(crate) string_ptr_type: PointerType<'ctx>,
     pub(crate) declared_functions: HashMap<String, FunctionValue<'ctx>>,
     pub(crate) function_return_types: HashMap<String, OtterType>,
-    #[allow(dead_code)]
     pub(crate) expr_types: HashMap<usize, TypeInfo>,
     expr_types_by_span: HashMap<Span, TypeInfo>,
     pub(crate) comprehension_var_types: HashMap<Span, TypeInfo>,
     expr_spans: HashMap<usize, Span>,
     pub(crate) enum_layouts: HashMap<String, EnumLayout>,
     pub(crate) function_defaults: HashMap<String, Vec<Option<Expr>>>,
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     pub(crate) lambda_counter: AtomicUsize,
     next_spawn_id: u64,
     struct_ids: HashMap<String, u32>,
@@ -75,8 +74,8 @@ impl<'ctx> Compiler<'ctx> {
         match stmt {
             Statement::Expr(expr)
             | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. } => self.record_expr_spans(expr),
-            Statement::Return(Some(expr)) => self.record_expr_spans(expr),
+            | Statement::Assignment { expr, .. }
+            | Statement::Return(Some(expr)) => self.record_expr_spans(expr),
             Statement::Return(None)
             | Statement::Break
             | Statement::Continue
@@ -129,7 +128,9 @@ impl<'ctx> Compiler<'ctx> {
                 self.record_expr_spans(left);
                 self.record_expr_spans(right);
             }
-            Expr::Unary { expr, .. } => self.record_expr_spans(expr),
+            Expr::Unary { expr, .. } | Expr::Await(expr) | Expr::Spawn(expr) => {
+                self.record_expr_spans(expr);
+            }
             Expr::Call { func, args } => {
                 self.record_expr_spans(func);
                 for arg in args {
@@ -205,7 +206,6 @@ impl<'ctx> Compiler<'ctx> {
                     }
                 }
             }
-            Expr::Await(expr) | Expr::Spawn(expr) => self.record_expr_spans(expr),
             Expr::Struct { fields, .. } => {
                 for (_, value) in fields {
                     self.record_expr_spans(value);
@@ -213,7 +213,10 @@ impl<'ctx> Compiler<'ctx> {
             }
         }
     }
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "TODO: Create a struct to hold these args"
+    )]
     pub fn new(
         context: &'ctx InkwellContext,
         module: Module<'ctx>,
@@ -493,10 +496,11 @@ impl<'ctx> Compiler<'ctx> {
                 FfiType::Unit => context.i8_type().into(),
                 FfiType::Bool => context.bool_type().into(),
                 FfiType::I32 => context.i32_type().into(),
-                FfiType::I64 => context.i64_type().into(),
+                FfiType::I64 | FfiType::Opaque | FfiType::List | FfiType::Map => {
+                    context.i64_type().into()
+                }
                 FfiType::F64 => context.f64_type().into(),
                 FfiType::Str => string_ptr_type.into(),
-                FfiType::Opaque | FfiType::List | FfiType::Map => context.i64_type().into(),
                 FfiType::Struct { fields } | FfiType::Tuple(fields) => {
                     let field_types: Vec<BasicTypeEnum> = fields
                         .iter()
@@ -589,13 +593,14 @@ impl<'ctx> Compiler<'ctx> {
     fn map_ast_type(&self, ty: &otterc_ast::nodes::Type) -> Result<BasicTypeEnum<'ctx>> {
         match ty {
             otterc_ast::nodes::Type::Simple(name) => match name.as_str() {
-                "int" | "i64" => Ok(self.context.i64_type().into()),
+                // Lists and Maps are opaque handles
+                "int" | "i64" | "list" | "List" | "map" | "Map" => {
+                    Ok(self.context.i64_type().into())
+                }
                 "float" | "f64" => Ok(self.context.f64_type().into()),
                 "bool" => Ok(self.context.bool_type().into()),
                 "string" | "str" => Ok(self.string_ptr_type.into()),
                 "void" | "unit" => Ok(self.context.i8_type().into()), // Unit as i8 (or void for return)
-                "list" | "List" => Ok(self.context.i64_type().into()), // Opaque handle
-                "map" | "Map" => Ok(self.context.i64_type().into()),  // Opaque handle
                 other => {
                     if let Some(id) = self.struct_id(other) {
                         Ok(self.struct_info(id).ty.into())

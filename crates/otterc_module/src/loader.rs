@@ -123,17 +123,9 @@ impl ModuleLoader {
                         exports.add_constant(name.as_ref().clone());
                     }
                 }
-                Statement::Struct { name, public, .. } => {
-                    if *public {
-                        exports.add_type(name.clone());
-                    }
-                }
-                Statement::Enum { name, public, .. } => {
-                    if *public {
-                        exports.add_type(name.clone());
-                    }
-                }
-                Statement::TypeAlias { name, public, .. } => {
+                Statement::Struct { name, public, .. }
+                | Statement::Enum { name, public, .. }
+                | Statement::TypeAlias { name, public, .. } => {
                     if *public {
                         exports.add_type(name.clone());
                     }

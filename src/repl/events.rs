@@ -39,24 +39,20 @@ impl EventHandler {
                     .checked_sub(last_tick.elapsed())
                     .unwrap_or_else(|| Duration::from_secs(0));
 
-                match event::poll(timeout) {
-                    Ok(true) => {
-                        if let Ok(evt) = event::read() {
-                            match evt {
-                                Event::Key(key) => {
-                                    if key.kind == KeyEventKind::Press {
-                                        let _ = event_tx.send(AppEvent::Key(key));
-                                    }
-                                }
-                                Event::Resize(w, h) => {
-                                    let _ = event_tx.send(AppEvent::Resize(w, h));
-                                }
-                                _ => {}
+                if let Ok(true) = event::poll(timeout)
+                    && let Ok(evt) = event::read()
+                {
+                    match evt {
+                        Event::Key(key) => {
+                            if key.kind == KeyEventKind::Press {
+                                let _ = event_tx.send(AppEvent::Key(key));
                             }
                         }
+                        Event::Resize(w, h) => {
+                            let _ = event_tx.send(AppEvent::Resize(w, h));
+                        }
+                        _ => {}
                     }
-                    Ok(false) => {}
-                    Err(_) => {}
                 }
 
                 if last_tick.elapsed() >= tick_rate {
@@ -79,7 +75,7 @@ impl EventHandler {
     }
 
     /// Try to get the next event (non-blocking)
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "Work in progress")]
     pub fn try_next(&self) -> Option<AppEvent> {
         self.rx.try_recv().ok()
     }
@@ -96,13 +92,13 @@ pub fn is_ctrl(key: &KeyEvent) -> bool {
 }
 
 /// Helper to check if Alt is pressed
-#[allow(dead_code)]
+#[expect(dead_code, reason = "Work in progress")]
 pub fn is_alt(key: &KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::ALT)
 }
 
 /// Helper to check if Shift is pressed
-#[allow(dead_code)]
+#[expect(dead_code, reason = "Work in progress")]
 pub fn is_shift(key: &KeyEvent) -> bool {
     key.modifiers.contains(KeyModifiers::SHIFT)
 }

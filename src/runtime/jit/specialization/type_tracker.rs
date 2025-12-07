@@ -28,7 +28,8 @@ impl TypeTracker {
                 Literal::String(_) => RuntimeType::Str,
                 _ => RuntimeType::Unknown,
             },
-            Expr::Identifier { .. } => RuntimeType::Unknown, // Would need symbol table lookup
+            // Would need symbol table lookup
+            // Expr::Identifier { .. } => ..,
             _ => RuntimeType::Unknown,
         }
     }

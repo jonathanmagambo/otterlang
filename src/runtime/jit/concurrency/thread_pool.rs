@@ -45,7 +45,7 @@ impl AdaptiveThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
-        self.work_sender.send(Box::new(work)).ok();
+        let _ = self.work_sender.send(Box::new(work));
     }
 
     pub fn spawn<F>(&self, work: F) -> thread::JoinHandle<()>
@@ -55,11 +55,11 @@ impl AdaptiveThreadPool {
         let (sender, receiver) = std::sync::mpsc::channel();
         self.execute(move || {
             work();
-            sender.send(()).ok();
+            let _ = sender.send(());
         });
 
         thread::spawn(move || {
-            receiver.recv().ok();
+            let _ = receiver.recv();
         })
     }
 

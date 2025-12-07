@@ -557,8 +557,7 @@ impl PartialEq for Literal {
             (Literal::String(a), Literal::String(b)) => a == b,
             (Literal::Bool(a), Literal::Bool(b)) => a == b,
             (Literal::Number(a), Literal::Number(b)) => a == b,
-            (Literal::None, Literal::None) => true,
-            (Literal::Unit, Literal::Unit) => true,
+            (Literal::None, Literal::None) | (Literal::Unit, Literal::Unit) => true,
             _ => false,
         }
     }
