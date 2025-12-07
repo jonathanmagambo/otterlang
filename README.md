@@ -17,17 +17,11 @@
 </div>
 
 <h3 align="center">
-  <a href="docs/LANGUAGE_SPEC.md"><b>Language Spec</b></a>
+  <a href="docs/ROADMAP.md"><b>Roadmap</b></a>
   &nbsp;&#183;&nbsp;
   <a href="docs/GETTING_STARTED.md"><b>Getting Started</b></a>
   &nbsp;&#183;&nbsp;
   <a href="docs/EXAMPLES.md"><b>Examples</b></a>
-  &nbsp;&#183;&nbsp;
-  <a href="https://discord.gg/y3b4QuvyFk" target="_blank">Discord</a>
-  &nbsp;&#183;&nbsp;
-  <a href="docs/FFI_GUIDE.md"><b>FFI Guide</b></a>
-  &nbsp;&#183;&nbsp;
-  <a href="CONTRIBUTING.md"><b>Contributing</b></a>
 </h3>
 
 <h1 align="center">Quick Start</h1>
@@ -109,7 +103,7 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 
 <div align="center">
 
-**[Language Specification](docs/LANGUAGE_SPEC.md)** – grammar, semantics, runtime model.
+**[Roadmap](docs/ROADMAP.md)** – project roadmap and future plans.
 
 **[Getting Started](docs/GETTING_STARTED.md)** – installation, CLI walkthrough, first project.
 
@@ -118,8 +112,6 @@ We ship a VS Code extension with syntax highlighting, snippets, diagnostics, and
 **[Tutorials](docs/TUTORIALS.md)** – guided walkthroughs for specific topics.
 
 **[API Reference](docs/API_REFERENCE.md)** – stdlib module documentation.
-
-**[FFI Guide](docs/FFI_GUIDE.md)** – transparent Rust crate import workflow.
 
 **[WebAssembly](docs/WEBASSEMBLY.md)** – compiling OtterLang programs to WASM targets.
 
