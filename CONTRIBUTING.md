@@ -142,28 +142,31 @@ cargo +nightly build --release
 
 **Windows**
 
-**Important:** You must use the **x64 Native Tools Command Prompt for VS 2022** (or Visual Studio Developer Command Prompt) to build. The MSVC linker requires environment variables that are only set in the Developer Command Prompt.
+Use the **x64 Native Tools Command Prompt for VS 2022** (or any Visual Studio Developer Command Prompt) so the MSVC tooling is available. From there, run the bundled setup script which mirrors the process described in `docs/GETTING_STARTED.md`:
+
+The included PowerShell script `setup.ps1` prepares your environment to build OtterLang by:
+
+1. Initializing the Visual Studio developer shell (sets the required environment variables).
+2. Downloading LLVM 18.
+3. Downloading libxml2.
+4. Updating `PATH` and other env vars so the compiler can find LLVM and libxml2.
+
+The script installs the dependencies inside a `contrib` folder. Because the environment tweaks are session-specific, run the script in every new shell before building.
 
 ```powershell
 # Clone the repository (if you haven't already)
 git clone https://github.com/jonathanmagambo/otterlang.git
 cd otterlang
 
-# Install LLVM 18 using winget (recommended)
-winget install -e --id LLVM.LLVM -v "18.1.8" --silent --accept-package-agreements --accept-source-agreements
-$env:LLVM_SYS_181_PREFIX = "C:\\Program Files\\LLVM"
-$env:LLVM_SYS_180_PREFIX = $env:LLVM_SYS_181_PREFIX
-$env:Path = "$env:LLVM_SYS_181_PREFIX\\bin;$env:Path"
-
 # Install Rust nightly
 rustup toolchain install nightly
-rustup default nightly
+
+# Run setup script
+./setup.ps1
 
 # Build OtterLang
 cargo +nightly build --release
 ```
-
-**Note:** The LLVM installation path may vary depending on the installation method. A typical location is `C:\Program Files\LLVM`.
 
 ## Building & Testing
 
