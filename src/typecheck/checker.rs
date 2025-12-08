@@ -733,7 +733,10 @@ impl TypeChecker {
                                     "generic parameter '{}' declared on struct '{}' is never used",
                                     generic, name
                                 ))
-                                .with_hint("remove the unused generic or use it in a field type".to_string())
+                                .with_hint(
+                                    "remove the unused generic or use it in a field type"
+                                        .to_string(),
+                                )
                                 .with_span(*statement.span()),
                             );
                         }

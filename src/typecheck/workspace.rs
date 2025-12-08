@@ -222,10 +222,7 @@ mod tests {
             Expr::Call {
                 func: Box::new(Node::new(
                     Expr::Member {
-                        object: Box::new(Node::new(
-                            Expr::Identifier("math".to_string()),
-                            span(),
-                        )),
+                        object: Box::new(Node::new(Expr::Identifier("math".to_string()), span())),
                         field: "add_one".to_string(),
                     },
                     span(),

@@ -35,6 +35,7 @@ impl TestRunner {
         let binary_path = compile_result.unwrap();
 
         let mut command = Command::new(&binary_path);
+        self.settings.apply_runtime_env(&mut command);
         command.env("OTTER_TEST_MODE", "1");
         command.env("OTTER_TEST_NAME", &test.function_name);
         if self.update_snapshots {

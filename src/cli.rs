@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use tracing::{debug, info, warn};
 
@@ -19,6 +19,7 @@ use crate::codegen::{
     self, BuildArtifact, CodegenOptLevel, CodegenOptions, TargetTriple, build_executable,
 };
 use crate::runtime::ffi;
+use crate::runtime::memory::config::GcStrategy;
 use crate::runtime::symbol_registry::SymbolRegistry;
 use crate::typecheck::{self, TypeChecker};
 use crate::version::VERSION;
@@ -89,6 +90,22 @@ pub struct OtterCli {
     /// Target triple for cross-compilation (e.g., wasm32-unknown-unknown, thumbv7m-none-eabi)
     target: Option<String>,
 
+    #[arg(long, global = true, value_name = "strategy")]
+    /// Select the GC strategy (rc, mark-sweep, generational, none)
+    gc_strategy: Option<String>,
+
+    #[arg(long, global = true, value_name = "fraction")]
+    /// Override the GC heap usage threshold before triggering a cycle (0.0-1.0)
+    gc_threshold: Option<f64>,
+
+    #[arg(long, global = true, value_name = "ms")]
+    /// Force a fixed GC interval in milliseconds (0 disables interval-based cycles)
+    gc_interval_ms: Option<u64>,
+
+    #[arg(long, global = true, value_name = "bytes")]
+    /// Limit the number of bytes that may be allocated while GC is disabled
+    gc_disabled_max_bytes: Option<usize>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -156,7 +173,7 @@ pub fn run() -> Result<()> {
         Command::Run { path } => handle_run(&cli, path),
         Command::Build { path, output } => handle_build(&cli, path, output.clone()),
         Command::Check { path } => handle_check(&cli, path),
-        Command::Repl => handle_repl(),
+        Command::Repl => handle_repl(&cli),
         Command::Fmt { paths } => handle_fmt(paths),
         Command::Profile { subcommand } => {
             crate::tools::profiler::run_profiler_subcommand(subcommand)
@@ -254,7 +271,7 @@ fn maybe_auto_update() -> Result<()> {
 }
 
 fn handle_run(cli: &OtterCli, path: &Path) -> Result<()> {
-    let settings = CompilationSettings::from_cli(cli);
+    let settings = CompilationSettings::from_cli(cli)?;
     let source = read_source(path)?;
     let stage = compile_pipeline(path, &source, &settings)?;
 
@@ -294,7 +311,7 @@ fn handle_run(cli: &OtterCli, path: &Path) -> Result<()> {
 }
 
 fn handle_build(cli: &OtterCli, path: &Path, output: Option<PathBuf>) -> Result<()> {
-    let settings = CompilationSettings::from_cli(cli);
+    let settings = CompilationSettings::from_cli(cli)?;
     let source = read_source(path)?;
     let stage = compile_pipeline(path, &source, &settings)?;
 
@@ -348,7 +365,7 @@ fn handle_build(cli: &OtterCli, path: &Path, output: Option<PathBuf>) -> Result<
 }
 
 fn handle_check(cli: &OtterCli, path: &Path) -> Result<()> {
-    let mut settings = CompilationSettings::from_cli(cli);
+    let mut settings = CompilationSettings::from_cli(cli)?;
     settings.check_only = true;
     let source = read_source(path)?;
     let stage = compile_pipeline(path, &source, &settings)?;
@@ -598,12 +615,85 @@ pub struct CompilationSettings {
     max_cache_size: usize,
     check_only: bool,
     language_features: LanguageFeatureFlags,
+    gc: GcCliOptions,
+}
+
+#[derive(Clone, Default)]
+struct GcCliOptions {
+    strategy: Option<GcStrategy>,
+    threshold: Option<f64>,
+    interval_ms: Option<u64>,
+    disabled_limit: Option<usize>,
+}
+
+impl GcCliOptions {
+    fn from_cli(cli: &OtterCli) -> Result<Self> {
+        let strategy = match &cli.gc_strategy {
+            Some(value) => Some(
+                value
+                    .parse::<GcStrategy>()
+                    .map_err(|_| anyhow!("invalid GC strategy '{}'", value))?,
+            ),
+            None => None,
+        };
+
+        Ok(Self {
+            strategy,
+            threshold: cli.gc_threshold.map(|value| value.clamp(0.0, 1.0)),
+            interval_ms: cli.gc_interval_ms,
+            disabled_limit: cli.gc_disabled_max_bytes,
+        })
+    }
+
+    fn apply_to_command(&self, command: &mut std::process::Command) {
+        for (key, value) in self.env_pairs() {
+            command.env(key, value);
+        }
+    }
+
+    fn apply_to_process_env(&self) {
+        for (key, value) in self.env_pairs() {
+            unsafe {
+                std::env::set_var(key, value);
+            }
+        }
+    }
+
+    fn env_pairs(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = Vec::new();
+        if let Some(strategy) = self.strategy {
+            pairs.push((
+                "OTTER_GC_STRATEGY",
+                Self::strategy_env_value(strategy).to_string(),
+            ));
+        }
+        if let Some(threshold) = self.threshold {
+            pairs.push(("OTTER_GC_THRESHOLD", threshold.to_string()));
+        }
+        if let Some(interval) = self.interval_ms {
+            pairs.push(("OTTER_GC_INTERVAL", interval.to_string()));
+        }
+        if let Some(limit) = self.disabled_limit {
+            pairs.push(("OTTER_GC_DISABLED_MAX_BYTES", limit.to_string()));
+        }
+        pairs
+    }
+
+    fn strategy_env_value(strategy: GcStrategy) -> &'static str {
+        match strategy {
+            GcStrategy::ReferenceCounting => "reference-counting",
+            GcStrategy::MarkSweep => "mark-sweep",
+            GcStrategy::Generational => "generational",
+            GcStrategy::None => "none",
+        }
+    }
 }
 
 impl CompilationSettings {
-    fn from_cli(cli: &OtterCli) -> Self {
+    fn from_cli(cli: &OtterCli) -> Result<Self> {
         let language_features = resolve_language_features(cli);
-        Self {
+        let gc = GcCliOptions::from_cli(cli)?;
+        Ok(Self {
             dump_tokens: cli.dump_tokens,
             dump_ast: cli.dump_ast,
             dump_ir: cli.dump_ir,
@@ -621,11 +711,29 @@ impl CompilationSettings {
             max_cache_size: 1024 * 1024 * 1024, // 1GB default
             check_only: false,
             language_features,
-        }
+            gc,
+        })
     }
 
     fn allow_cache(&self) -> bool {
         !(self.dump_tokens || self.dump_ast || self.dump_ir || self.no_cache || self.check_only)
+    }
+
+    pub fn apply_runtime_env(&self, command: &mut std::process::Command) {
+        if self.tasks {
+            command.env("OTTER_TASKS_DIAGNOSTICS", "1");
+        }
+        if self.tasks_debug {
+            command.env("OTTER_TASKS_DEBUG", "1");
+        }
+        if self.tasks_trace {
+            command.env("OTTER_TASKS_TRACE", "1");
+        }
+        if self.debug {
+            command.env("RUST_BACKTRACE", "1");
+            command.env("OTTER_DEBUG", "1");
+        }
+        self.gc.apply_to_command(command);
     }
 
     fn cache_build_options(&self) -> CacheBuildOptions {
@@ -779,20 +887,7 @@ fn execute_binary(path: &Path, settings: &CompilationSettings) -> Result<()> {
     }
 
     let mut command = ProcessCommand::new(path);
-
-    if settings.tasks {
-        command.env("OTTER_TASKS_DIAGNOSTICS", "1");
-    }
-    if settings.tasks_debug {
-        command.env("OTTER_TASKS_DEBUG", "1");
-    }
-    if settings.tasks_trace {
-        command.env("OTTER_TASKS_TRACE", "1");
-    }
-    if settings.debug {
-        command.env("RUST_BACKTRACE", "1");
-        command.env("OTTER_DEBUG", "1");
-    }
+    settings.apply_runtime_env(&mut command);
 
     let status = command
         .status()
@@ -898,8 +993,11 @@ fn handle_fmt(paths: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-fn handle_repl() -> Result<()> {
+fn handle_repl(cli: &OtterCli) -> Result<()> {
     use crate::repl::{ReplEngine, Tui};
+
+    let gc = CompilationSettings::from_cli(cli)?.gc;
+    gc.apply_to_process_env();
 
     let engine = ReplEngine::new();
     match Tui::new(engine) {
@@ -959,7 +1057,7 @@ fn handle_test(
     use crate::test::{TestDiscovery, TestReporter, TestRunner};
     use rayon::prelude::*;
 
-    let settings = CompilationSettings::from_cli(cli);
+    let settings = CompilationSettings::from_cli(cli)?;
     let mut discovery = TestDiscovery::new();
     discovery.discover_files(paths)?;
 

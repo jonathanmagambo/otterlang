@@ -408,11 +408,26 @@ These options can be used with any command:
 - `--verbose` - Enable verbose output
 - `--quiet` - Suppress informational output
 
+#### Garbage Collection Controls
+
+All commands that execute Otter code accept GC tuning flags:
+
+- `--gc-strategy <strategy>` – choose between `rc`, `mark-sweep`, `generational`, or `none`.
+- `--gc-threshold <fraction>` – override the heap usage threshold (0.0–1.0) that triggers a collection.
+- `--gc-interval-ms <ms>` – force a periodic GC cycle; set to `0` to disable interval-based cycles.
+- `--gc-disabled-max-bytes <bytes>` – cap allocations allowed while GC is disabled.
+
+Passing these flags is equivalent to setting the matching `OTTER_GC_*` environment variables for the spawned program. See `docs/GC_GUIDE.md` for a deeper discussion of collectors, root registration, and arenas.
+
 ### Environment Variables
 
 - `OTTER_LOG` - Set logging level
 - `OTTER_FFI_CACHE` - FFI bridge cache directory
 - `OTTER_LIB_PATH` - Additional library search paths
+- `OTTER_GC_STRATEGY` - Same as `--gc-strategy`
+- `OTTER_GC_THRESHOLD` - Same as `--gc-threshold`
+- `OTTER_GC_INTERVAL` - Same as `--gc-interval-ms`
+- `OTTER_GC_DISABLED_MAX_BYTES` - Same as `--gc-disabled-max-bytes`
 
 **LLVM not found:**
 Verify that `LLVM_SYS_181_PREFIX` points to the correct LLVM installation directory and that LLVM binaries are in your PATH.

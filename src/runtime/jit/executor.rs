@@ -35,6 +35,11 @@ impl JitExecutor {
         })
     }
 
+    /// Recompile the current program without rebuilding the entire engine
+    pub fn recompile(&mut self, program: &Program) -> Result<()> {
+        self.engine.compile_program(program)
+    }
+
     /// Execute the main function
     pub fn execute_main(&mut self) -> Result<()> {
         self.execute_with_profiling("main", &[])

@@ -125,30 +125,41 @@ impl ReplEngine {
                 false
             }
         }) {
-            match JitExecutor::new(&self.program.clone(), self.symbol_registry) {
-                Ok(mut executor) => {
-                    if self.program.statements.iter().any(|s| {
-                        if let Statement::Function(f) = s.as_ref() {
-                            f.as_ref().name == "main"
-                        } else {
-                            false
-                        }
-                    }) {
-                        executor.execute_main()?;
-                    } else if let Some(stmt) = self.program.statements.last()
-                        && let Statement::Function(f) = stmt.as_ref()
-                        && f.as_ref().name == "__repl_expr"
-                    {
-                        executor.execute_main()?;
-                        self.program.statements.pop();
+            let program_snapshot = self.program.clone();
+            let executor_result = if let Some(exec) = self.executor.as_mut() {
+                exec.recompile(&program_snapshot)
+            } else {
+                match JitExecutor::new(&program_snapshot, self.symbol_registry) {
+                    Ok(exec) => {
+                        self.executor = Some(exec);
+                        Ok(())
                     }
-                    self.executor = Some(executor);
+                    Err(e) => Err(e),
                 }
-                Err(e) => {
-                    for _ in 0..num_statements {
-                        self.program.statements.pop();
+            };
+
+            if let Err(e) = executor_result {
+                for _ in 0..num_statements {
+                    self.program.statements.pop();
+                }
+                return Err(e).context("compilation failed");
+            }
+
+            if let Some(executor) = self.executor.as_mut() {
+                if self.program.statements.iter().any(|s| {
+                    if let Statement::Function(f) = s.as_ref() {
+                        f.as_ref().name == "main"
+                    } else {
+                        false
                     }
-                    return Err(e).context("compilation failed");
+                }) {
+                    executor.execute_main()?;
+                } else if let Some(stmt) = self.program.statements.last()
+                    && let Statement::Function(f) = stmt.as_ref()
+                    && f.as_ref().name == "__repl_expr"
+                {
+                    executor.execute_main()?;
+                    self.program.statements.pop();
                 }
             }
         }
