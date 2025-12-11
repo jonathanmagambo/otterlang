@@ -57,7 +57,7 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Vec<ParserError>> {
     let parser = program_parser();
     let eof_span = tokens
         .last()
-        .map(|token| token.span)
+        .map(|token| token.span())
         .unwrap_or_else(|| Span::new(0, 0));
 
     let end = eof_span.end();
@@ -65,8 +65,7 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Vec<ParserError>> {
         end..end + 1,
         tokens
             .iter()
-            .cloned()
-            .map(|token| (token.kind, token.span.into())),
+            .map(|token| (token.kind().clone(), token.span().into())),
     );
 
     parser
@@ -173,12 +172,13 @@ fn parse_fstring(content: String, span: impl Into<Span>) -> Node<Expr> {
                                 Ok(tokens) => {
                                     // Create a stream from tokens for the parser
                                     use chumsky::Stream;
-                                    let end_span = tokens.last().map(|t| t.span.end()).unwrap_or(0);
+                                    let end_span =
+                                        tokens.last().map(|t| t.span().end()).unwrap_or(0);
                                     let stream = Stream::from_iter(
                                         end_span..end_span + 1,
-                                        tokens
-                                            .iter()
-                                            .map(|token| (token.kind.clone(), token.span.into())),
+                                        tokens.iter().map(|token| {
+                                            (token.kind().clone(), token.span().into())
+                                        }),
                                     );
                                     match expr_parser().parse(stream) {
                                         Ok(expr) => {

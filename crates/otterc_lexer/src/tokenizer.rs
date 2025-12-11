@@ -857,7 +857,7 @@ mod tests {
         tokenize(source)
             .expect("lexing should succeed")
             .into_iter()
-            .map(|token| token.kind)
+            .map(|token| token.kind().clone())
             .collect()
     }
 
@@ -879,8 +879,8 @@ mod tests {
 
         let newline_span = tokens
             .iter()
-            .find(|token| matches!(token.kind, TokenKind::Newline))
-            .map(|token| token.span.len())
+            .find(|token| matches!(token.kind(), TokenKind::Newline))
+            .map(|token| token.span().len())
             .expect("expected at least one newline token");
 
         assert_eq!(newline_span, 2);

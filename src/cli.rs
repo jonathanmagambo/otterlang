@@ -419,7 +419,7 @@ pub fn compile_pipeline(
     if settings.dump_tokens {
         println!("\n{}", "== Tokens ==".bold());
         for token in &tokens {
-            println!("  {:?} @ {:?}", token.kind, token.span);
+            println!("  {:?} @ {:?}", token.kind(), token.span());
         }
     }
 

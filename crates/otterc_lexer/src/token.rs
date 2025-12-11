@@ -305,13 +305,29 @@ impl fmt::Debug for TokenKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
-    pub kind: TokenKind,
-    pub span: Span,
+    kind: TokenKind,
+    span: Span,
 }
 
 impl Token {
     pub fn new(kind: TokenKind, span: Span) -> Self {
         Self { kind, span }
+    }
+
+    pub fn kind(&self) -> &TokenKind {
+        &self.kind
+    }
+
+    pub fn kind_mut(&mut self) -> &mut TokenKind {
+        &mut self.kind
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn span_mut(&mut self) -> &mut Span {
+        &mut self.span
     }
 
     pub fn is_keyword(&self) -> bool {

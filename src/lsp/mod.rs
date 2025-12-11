@@ -1210,10 +1210,10 @@ fn collect_references_from_expr(
 /// Find span of a name in tokens (approximate)
 fn find_name_span(name: &str, tokens: &[Token], _text: &str) -> Option<Span> {
     for token in tokens {
-        if let otterc_lexer::token::TokenKind::Identifier(ref id) = token.kind
+        if let otterc_lexer::token::TokenKind::Identifier(id) = token.kind()
             && id == name
         {
-            return Some(token.span);
+            return Some(token.span());
         }
     }
     None
