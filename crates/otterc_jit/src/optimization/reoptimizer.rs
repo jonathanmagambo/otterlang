@@ -122,10 +122,11 @@ impl Reoptimizer {
 
     fn fold_constants_in_statement(&self, stmt: &mut Statement) {
         match stmt {
-            Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. }
-            | Statement::Expr(expr)
-            | Statement::Return(Some(expr)) => {
+            Statement::Let { expr, .. } | Statement::Expr(expr) | Statement::Return(Some(expr)) => {
+                self.fold_constants_in_expr(expr.as_mut());
+            }
+            Statement::Assignment { target, expr } => {
+                self.fold_constants_in_expr(target.as_mut());
                 self.fold_constants_in_expr(expr.as_mut());
             }
             Statement::If {

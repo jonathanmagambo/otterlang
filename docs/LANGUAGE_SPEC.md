@@ -312,6 +312,8 @@ fn main():
 - Function declarations are only permitted at module scope; define helpers as separate top-level functions.
 - Method definitions live inside `struct` blocks. The parser automatically inserts `self: StructName` as the first parameter if you omit it.
 
+`print`, `println`, and `eprintln` automatically stringify whatever value you pass—integers, floats, bools, structs with `str()` implementations, etc.—so you can log `println(foo.bar)` without wrapping it in `str(...)` or formatting the value manually.
+
 Top-level code may contain `fn` definitions, `let` bindings, `struct`/`enum`/`type` declarations, `use`/`pub use` statements, and expression statements. Control-flow constructs such as `if`/`for` must appear inside one of those blocks.
 
 ## Structs

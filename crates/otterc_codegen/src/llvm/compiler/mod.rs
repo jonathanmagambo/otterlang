@@ -71,10 +71,13 @@ impl<'ctx> Compiler<'ctx> {
 
     fn record_statement_spans(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::Expr(expr)
-            | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. }
-            | Statement::Return(Some(expr)) => self.record_expr_spans(expr),
+            Statement::Expr(expr) | Statement::Let { expr, .. } | Statement::Return(Some(expr)) => {
+                self.record_expr_spans(expr);
+            }
+            Statement::Assignment { target, expr } => {
+                self.record_expr_spans(target);
+                self.record_expr_spans(expr);
+            }
             Statement::Return(None)
             | Statement::Break
             | Statement::Continue

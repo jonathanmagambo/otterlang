@@ -305,10 +305,11 @@ impl<'ctx> Compiler<'ctx> {
         captures: &mut BTreeSet<String>,
     ) {
         match stmt {
-            Statement::Expr(expr)
-            | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. }
-            | Statement::Return(Some(expr)) => {
+            Statement::Expr(expr) | Statement::Let { expr, .. } | Statement::Return(Some(expr)) => {
+                self.collect_captured_names(expr.as_ref(), ctx, captures);
+            }
+            Statement::Assignment { target, expr } => {
+                self.collect_captured_names(target.as_ref(), ctx, captures);
                 self.collect_captured_names(expr.as_ref(), ctx, captures);
             }
             Statement::If {
@@ -1665,11 +1666,21 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     fn cast_argument_for_call(
-        &self,
+        &mut self,
         value: BasicValueEnum<'ctx>,
         from_ty: OtterType,
         param_type: &BasicTypeEnum<'ctx>,
     ) -> Result<BasicValueEnum<'ctx>> {
+        if matches!(param_type, BasicTypeEnum::PointerType(ptr_ty) if *ptr_ty == self.string_ptr_type)
+            && from_ty != OtterType::Str
+        {
+            let converted = self.ensure_string_value(EvaluatedValue {
+                ty: from_ty,
+                value: Some(value),
+            })?;
+            return Ok(converted);
+        }
+
         if from_ty == OtterType::F64 && param_type.is_int_type() {
             let float_val = value.into_float_value();
             Ok(self
@@ -2692,12 +2703,12 @@ impl<'ctx> Compiler<'ctx> {
 
     fn find_identifier_type_in_statement(&self, stmt: &Statement, var: &str) -> Option<OtterType> {
         match stmt {
-            Statement::Expr(expr)
-            | Statement::Return(Some(expr))
-            | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. } => {
+            Statement::Expr(expr) | Statement::Return(Some(expr)) | Statement::Let { expr, .. } => {
                 self.find_identifier_type_in_expr(expr.as_ref(), var)
             }
+            Statement::Assignment { target, expr } => self
+                .find_identifier_type_in_expr(target.as_ref(), var)
+                .or_else(|| self.find_identifier_type_in_expr(expr.as_ref(), var)),
             Statement::Return(None)
             | Statement::Break
             | Statement::Continue

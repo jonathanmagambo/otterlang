@@ -340,9 +340,11 @@ impl TypeChecker {
         expr_ids: &mut Vec<usize>,
     ) {
         match stmt {
-            Statement::Expr(expr)
-            | Statement::Let { expr, .. }
-            | Statement::Assignment { expr, .. } => {
+            Statement::Expr(expr) | Statement::Let { expr, .. } => {
+                self.collect_metadata_in_expr(expr, spans, expr_ids);
+            }
+            Statement::Assignment { target, expr } => {
+                self.collect_metadata_in_expr(target, spans, expr_ids);
                 self.collect_metadata_in_expr(expr, spans, expr_ids);
             }
             Statement::Return(Some(expr)) => self.collect_metadata_in_expr(expr, spans, expr_ids),
@@ -1521,32 +1523,30 @@ impl TypeChecker {
                 }
                 Ok(TypeInfo::Unit)
             }
-            Statement::Assignment { name, expr } => {
-                let var_type = self
-                    .context
-                    .get_variable(name.as_ref())
-                    .ok_or_else(|| {
-                        TypeError::new(format!("undefined variable: {}", name))
-                            .with_hint(format!("did you mean to declare it with `let {}`?", name))
-                            .with_help(
-                                "Variables must be declared with `let` before they can be assigned"
-                                    .to_string(),
-                            )
-                            .with_span(*span)
-                    })?
-                    .clone();
-
+            Statement::Assignment { target, expr } => {
+                let target_type = self.resolve_assignment_target_type(target, span)?;
                 let expr_type = self.infer_expr_type(expr)?;
-                if !expr_type.is_compatible_with(&var_type) {
-                    self.errors.push(TypeError::new(format!(
-                        "cannot assign {} to {} (expected {})",
-                        expr_type.display_name(),
-                        name,
-                        var_type.display_name()
-                    ))
-                    .with_hint(format!("The variable `{}` is declared as `{}`, but you're trying to assign a value of type `{}`", name, var_type.display_name(), expr_type.display_name()))
-                    .with_help("Make sure the types match or are compatible (e.g., i32 can be promoted to i64 or f64)".to_string())
-                    .with_span(*span));
+                if !expr_type.is_compatible_with(&target_type) {
+                    let target_label = self.describe_assignment_target(target.as_ref());
+                    self.errors.push(
+                        TypeError::new(format!(
+                            "cannot assign {} to {} (expected {})",
+                            expr_type.display_name(),
+                            target_label,
+                            target_type.display_name()
+                        ))
+                        .with_hint(format!(
+                            "The target `{}` expects values of type `{}`, but you're assigning `{}`",
+                            target_label,
+                            target_type.display_name(),
+                            expr_type.display_name()
+                        ))
+                        .with_help(
+                            "Make sure both sides of the assignment have compatible types (e.g., i32 can be promoted to i64 or f64)"
+                                .to_string(),
+                        )
+                        .with_span(*span),
+                    );
                 }
                 Ok(TypeInfo::Unit)
             }
@@ -2099,9 +2099,15 @@ impl TypeChecker {
                                     args.iter().zip(params_slice.iter()).enumerate()
                                 {
                                     let arg_type = self.infer_expr_type(arg)?;
-                                    if !matches!(arg_type, TypeInfo::Error)
-                                        && !arg_type.is_compatible_with(param_type)
-                                    {
+                                    let allows_string_coercion =
+                                        self.should_auto_stringify_call(func, param_type);
+                                    let incompatible = !(
+                                        matches!(arg_type, TypeInfo::Error)
+                                            || arg_type.is_compatible_with(param_type)
+                                            || (allows_string_coercion
+                                                && matches!(param_type, TypeInfo::Str))
+                                    );
+                                    if incompatible {
                                         self.errors.push(
                                             TypeError::new(format!(
                                                 "argument {} type mismatch: expected {}, got {}",
@@ -2960,6 +2966,135 @@ impl TypeChecker {
         }
     }
 
+    fn resolve_assignment_target_type(
+        &mut self,
+        target: &Node<Expr>,
+        stmt_span: &Span,
+    ) -> Result<TypeInfo> {
+        let target_span = target.span();
+        let error_span = if target_span.is_empty() { *stmt_span } else { *target_span };
+        match target.as_ref() {
+            Expr::Identifier(name) => {
+                if let Some(var_type) = self.context.get_variable(name) {
+                    Ok(var_type.clone())
+                } else {
+                    self.errors.push(
+                        TypeError::new(format!("undefined variable: {}", name))
+                            .with_hint(format!(
+                                "did you mean to declare it with `let {}`?",
+                                name
+                            ))
+                            .with_help(
+                                "Variables must be declared with `let` before they can be assigned"
+                                    .to_string(),
+                            )
+                            .with_span(error_span),
+                    );
+                    Ok(TypeInfo::Error)
+                }
+            }
+            Expr::Member { object, field } => {
+                let object_type = self.infer_expr_type(object)?;
+                if matches!(object_type, TypeInfo::Error) {
+                    return Ok(TypeInfo::Error);
+                }
+                let normalized = self.context.normalize_type(object_type.clone());
+                match normalized {
+                    TypeInfo::Struct { fields, .. } => {
+                        if let Some(field_type) = fields.get(field) {
+                            Ok(field_type.clone())
+                        } else {
+                            self.errors.push(
+                                TypeError::new(format!(
+                                    "struct has no field '{}'",
+                                    field
+                                ))
+                                .with_hint("Check the struct definition for available fields".to_string())
+                                .with_span(error_span),
+                            );
+                            Ok(TypeInfo::Error)
+                        }
+                    }
+                    TypeInfo::Module(module) => {
+                        self.errors.push(
+                            TypeError::new(format!(
+                                "cannot assign to member '{}' on module `{}`",
+                                field, module
+                            ))
+                            .with_span(error_span),
+                        );
+                        Ok(TypeInfo::Error)
+                    }
+                    _ => {
+                        self.errors.push(
+                            TypeError::new(format!(
+                                "cannot assign member '{}' on type {}",
+                                field,
+                                object_type.display_name()
+                            ))
+                            .with_hint(
+                                "Only struct types support member assignments".to_string(),
+                            )
+                            .with_span(error_span),
+                        );
+                        Ok(TypeInfo::Error)
+                    }
+                }
+            }
+            _ => {
+                self.errors.push(
+                    TypeError::new("assignment target must be an identifier or struct field".to_string())
+                        .with_span(error_span),
+                );
+                Ok(TypeInfo::Error)
+            }
+        }
+    }
+
+    fn describe_assignment_target(&self, target: &Expr) -> String {
+        match target {
+            Expr::Identifier(name) => name.clone(),
+            Expr::Member { object, field } => {
+                let prefix = self.describe_assignment_target(object.as_ref().as_ref());
+                format!("{}.{}", prefix, field)
+            }
+            _ => "expression".to_string(),
+        }
+    }
+
+    fn should_auto_stringify_call(&self, func: &Node<Expr>, param_type: &TypeInfo) -> bool {
+        matches!(param_type, TypeInfo::Str) && self.is_stringifying_function(func)
+    }
+
+    fn is_stringifying_function(&self, func: &Node<Expr>) -> bool {
+        if let Some(name) = self.resolve_function_name(func.as_ref()) {
+            matches!(
+                name.as_str(),
+                "print"
+                    | "println"
+                    | "eprintln"
+                    | "io.print"
+                    | "io.println"
+                    | "io.eprintln"
+                    | "std.io.print"
+                    | "std.io.println"
+                    | "std.io.eprintln"
+            )
+        } else {
+            false
+        }
+    }
+
+    fn resolve_function_name(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Identifier(name) => Some(name.clone()),
+            Expr::Member { object, field } => self
+                .resolve_function_name(object.as_ref().as_ref())
+                .map(|prefix| format!("{}.{}", prefix, field)),
+            _ => None,
+        }
+    }
+
     fn resolve_member_function(
         &mut self,
         object: &Node<Expr>,
@@ -3016,8 +3151,9 @@ fn ffi_type_to_typeinfo(ft: &FfiType) -> TypeInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use otterc_ast::nodes::{BinaryOp, Expr, Literal, Node, NumberLiteral};
+    use otterc_ast::nodes::{BinaryOp, Expr, Literal, Node, NumberLiteral, Statement};
     use otterc_span::Span;
+    use std::collections::HashMap;
     use std::f64;
 
     #[test]
@@ -3071,5 +3207,120 @@ mod tests {
         );
         let ty = checker.infer_expr_type(&expr).unwrap();
         assert_eq!(ty, TypeInfo::F64);
+    }
+
+    #[test]
+    fn member_access_after_call_resolves_struct_fields() {
+        let mut checker = TypeChecker::new();
+        let mut fields = HashMap::new();
+        fields.insert("x".to_string(), TypeInfo::I64);
+
+        let struct_def = StructDefinition {
+            name: "Point".to_string(),
+            generics: vec![],
+            fields: fields.clone(),
+            public: true,
+        };
+        checker.context.define_struct(struct_def);
+        checker.context.insert_function(
+            "make_point".to_string(),
+            TypeInfo::Function {
+                params: vec![],
+                param_defaults: vec![],
+                return_type: Box::new(TypeInfo::Struct {
+                    name: "Point".to_string(),
+                    fields: fields.clone(),
+                }),
+            },
+        );
+
+        let call_expr = Node::new(
+            Expr::Call {
+                func: Box::new(Node::new(
+                    Expr::Identifier("make_point".to_string()),
+                    Span::new(0, 0),
+                )),
+                args: vec![],
+            },
+            Span::new(0, 0),
+        );
+        let expr = Node::new(
+            Expr::Member {
+                object: Box::new(call_expr),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0),
+        );
+
+        let ty = checker.infer_expr_type(&expr).unwrap();
+        assert_eq!(ty, TypeInfo::I64);
+    }
+
+    #[test]
+    fn assignment_to_struct_field_typechecks() {
+        let mut checker = TypeChecker::new();
+        let mut fields = HashMap::new();
+        fields.insert("x".to_string(), TypeInfo::I64);
+
+        let struct_def = StructDefinition {
+            name: "Point".to_string(),
+            generics: vec![],
+            fields: fields.clone(),
+            public: true,
+        };
+        checker.context.define_struct(struct_def);
+        checker
+            .context
+            .insert_variable(
+                "point".to_string(),
+                TypeInfo::Struct {
+                    name: "Point".to_string(),
+                    fields: fields.clone(),
+                },
+            );
+
+        let target = Node::new(
+            Expr::Member {
+                object: Box::new(Node::new(
+                    Expr::Identifier("point".to_string()),
+                    Span::new(0, 0),
+                )),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0),
+        );
+        let expr = Node::new(
+            Expr::Literal(Node::new(
+                Literal::Number(NumberLiteral::new(5.0, false)),
+                Span::new(0, 0),
+            )),
+            Span::new(0, 0),
+        );
+        let stmt = Node::new(
+            Statement::Assignment { target, expr },
+            Span::new(0, 0),
+        );
+
+        checker.check_statement(&stmt).unwrap();
+        assert!(checker.errors.is_empty());
+    }
+
+    #[test]
+    fn println_accepts_non_string_argument() {
+        let mut checker = TypeChecker::new();
+        let span = Span::new(0, 0);
+        let call = Node::new(
+            Expr::Call {
+                func: Box::new(Node::new(Expr::Identifier("println".to_string()), span)),
+                args: vec![Node::new(
+                    Expr::Literal(Node::new(Literal::Number(NumberLiteral::new(1.0, false)), span)),
+                    span,
+                )],
+            },
+            span,
+        );
+        let stmt = Node::new(Statement::Expr(call), span);
+        checker.check_statement(&stmt).unwrap();
+        assert!(checker.errors.is_empty());
     }
 }

@@ -215,7 +215,7 @@ impl Inliner {
                     ));
                 }
             }
-            Statement::Assignment { name, expr } => {
+            Statement::Assignment { target, expr } => {
                 let mut expr_clone = expr.clone();
                 if let Some(mut snippet) = self.try_inline_expr(
                     &mut expr_clone,
@@ -228,11 +228,19 @@ impl Inliner {
                     current_name,
                 ) {
                     self.emit_snippet(&mut snippet, ctx, stack, stats, depth, out);
-                    let value = snippet.result_expr.unwrap_or(Node::new(
-                        Expr::Literal(Node::new(Literal::Unit, span)),
+                    let value = snippet
+                        .result_expr
+                        .unwrap_or(Node::new(
+                            Expr::Literal(Node::new(Literal::Unit, span)),
+                            span,
+                        ));
+                    out.push(Node::new(
+                        Statement::Assignment {
+                            target: target.clone(),
+                            expr: value,
+                        },
                         span,
                     ));
-                    out.push(Node::new(Statement::Assignment { name, expr: value }, span));
                 } else {
                     let mut expr = expr;
                     self.inline_expr(
@@ -244,7 +252,13 @@ impl Inliner {
                         current_hot,
                         current_name,
                     );
-                    out.push(Node::new(Statement::Assignment { name, expr }, span));
+                    out.push(Node::new(
+                        Statement::Assignment {
+                            target,
+                            expr,
+                        },
+                        span,
+                    ));
                 }
             }
             Statement::Expr(mut expr) => {
@@ -817,8 +831,8 @@ impl InlineBuilder {
                 expr: self.rewrite_expr(&expr),
                 public,
             },
-            Statement::Assignment { name, expr } => Statement::Assignment {
-                name: name.map(|name| self.names.resolve_or_clone(&name)),
+            Statement::Assignment { target, expr } => Statement::Assignment {
+                target: self.rewrite_expr(&target),
                 expr: self.rewrite_expr(&expr),
             },
             Statement::Expr(expr) => Statement::Expr(self.rewrite_expr(&expr)),

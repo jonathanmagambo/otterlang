@@ -319,6 +319,12 @@ fn literal_expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<To
     ))
 }
 
+#[derive(Debug, Clone)]
+enum PostfixOp {
+    Member { field: String, span: Span },
+    Call { args: Vec<Node<Expr>>, span: Span },
+}
+
 fn expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<TokenKind>> {
     recursive(|expr| {
         // Lambda expressions removed - use anonymous fn syntax instead
@@ -416,23 +422,11 @@ fn expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<TokenKind>
         ))
         .boxed();
 
-        let member_access = atom
-            .clone()
-            .then(
-                just(TokenKind::Dot)
-                    .ignore_then(identifier_or_keyword_parser())
-                    .map_with_span(Node::new)
-                    .repeated(),
-            )
-            .foldl(|object, field| {
-                let span = object.span().merge(field.span());
-                Node::new(
-                    Expr::Member {
-                        object: Box::new(object),
-                        field: field.into_inner(),
-                    },
-                    span,
-                )
+        let member_suffix = just(TokenKind::Dot)
+            .ignore_then(identifier_or_keyword_parser())
+            .map_with_span(|field, span: Range<usize>| PostfixOp::Member {
+                field,
+                span: span.into(),
             })
             .boxed();
 
@@ -445,22 +439,36 @@ fn expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<TokenKind>
                     .map(|args| args.unwrap_or_default()),
             )
             .then_ignore(just(TokenKind::RParen))
+            .map_with_span(|args, span: Range<usize>| PostfixOp::Call {
+                args,
+                span: span.into(),
+            })
             .boxed();
 
-        let call = member_access
+        let call = atom
             .clone()
-            .then(call_suffix.repeated())
-            .foldl(|func, args| {
-                let span = func
-                    .span()
-                    .merge(args.last().map(|_| func.span()).unwrap_or(func.span()));
-                Node::new(
-                    Expr::Call {
-                        func: Box::new(func),
-                        args,
-                    },
-                    span,
-                )
+            .then(choice((member_suffix.clone(), call_suffix.clone())).repeated())
+            .foldl(|expr, suffix| match suffix {
+                PostfixOp::Member { field, span } => {
+                    let span = expr.span().merge(&span);
+                    Node::new(
+                        Expr::Member {
+                            object: Box::new(expr),
+                            field,
+                        },
+                        span,
+                    )
+                }
+                PostfixOp::Call { args, span } => {
+                    let span = expr.span().merge(&span);
+                    Node::new(
+                        Expr::Call {
+                            func: Box::new(expr),
+                            args,
+                        },
+                        span,
+                    )
+                }
             })
             .boxed();
 
@@ -698,23 +706,18 @@ fn expr_parser() -> impl Parser<TokenKind, Node<Expr>, Error = Simple<TokenKind>
                         },
                         span,
                     );
-                    Node::new(
-                        Statement::Assignment {
-                            name: Node::new(name, name_span),
-                            expr,
-                        },
-                        span,
-                    )
+                    let target = Node::new(Expr::Identifier(name), name_span);
+                    Node::new(Statement::Assignment { target, expr }, span)
                 })
                 .boxed();
 
             // Simple assignment (=)
-            let simple_assignment = identifier_parser()
-                .map_with_span(Node::new)
+            let simple_assignment = expr
+                .clone()
                 .then_ignore(just(TokenKind::Equals))
                 .then(expr.clone())
-                .map_with_span(|(name, expr), span| {
-                    Node::new(Statement::Assignment { name, expr }, span)
+                .map_with_span(|(target, expr), span| {
+                    Node::new(Statement::Assignment { target, expr }, span)
                 })
                 .boxed();
 
@@ -949,11 +952,13 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
             )
         });
 
-    let simple_assignment_stmt = identifier_parser()
-        .map_with_span(Node::new)
+    let simple_assignment_stmt = expr
+        .clone()
         .then_ignore(just(TokenKind::Equals))
         .then(expr.clone())
-        .map_with_span(|(name, expr), span| Node::new(Statement::Assignment { name, expr }, span));
+        .map_with_span(|(target, expr), span| {
+            Node::new(Statement::Assignment { target, expr }, span)
+        });
 
     let compound_assignment_stmt = identifier_parser()
         .map_with_span(|name, span| (name, Span::new(span.start, span.end)))
@@ -975,13 +980,8 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
                 },
                 span,
             );
-            Node::new(
-                Statement::Assignment {
-                    name: Node::new(name, name_span),
-                    expr,
-                },
-                span,
-            )
+            let target = Node::new(Expr::Identifier(name), name_span);
+            Node::new(Statement::Assignment { target, expr }, span)
         })
         .boxed();
 
@@ -997,6 +997,14 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
         just(TokenKind::Colon).to(":".to_string()),
     ));
 
+    fn normalize_module_name(module: String) -> String {
+        if let Some(stripped) = module.strip_prefix("otterc_") {
+            stripped.to_string()
+        } else {
+            module
+        }
+    }
+
     let module_path = path_segment
         .clone()
         .then(path_separator.then(path_segment.clone()).repeated())
@@ -1006,7 +1014,7 @@ fn program_parser() -> impl Parser<TokenKind, Program, Error = Simple<TokenKind>
                 module.push_str(&sep);
                 module.push_str(&segment);
             }
-            module
+            normalize_module_name(module)
         });
 
     let use_import = module_path
@@ -1512,5 +1520,88 @@ mod tests {
         let source = include_str!("../../../examples/basic/enum_demo.ot");
         let tokens = otterc_lexer::tokenize(source).expect("tokenize enum demo");
         parse(&tokens).expect("parse enum demo");
+    }
+
+    #[test]
+    fn parses_chained_member_after_call() {
+        let source = "foo().bar().baz";
+        let tokens = otterc_lexer::tokenize(source).expect("tokenize chained expression");
+        let end = tokens.last().map(|t| t.span().end()).unwrap_or(0);
+        let stream = Stream::from_iter(
+            end..end + 1,
+            tokens
+                .iter()
+                .map(|token| (token.kind().clone(), token.span().into())),
+        );
+        let expr = expr_parser()
+            .parse(stream)
+            .expect("parse chained expression");
+
+        match expr.as_ref() {
+            Expr::Member { field, object } => {
+                assert_eq!(field, "baz");
+                match object.as_ref().as_ref() {
+                    Expr::Call { func, args } => {
+                        assert!(args.is_empty(), "final call should have no args");
+                        match func.as_ref().as_ref() {
+                            Expr::Member { field, object } => {
+                                assert_eq!(field, "bar");
+                                match object.as_ref().as_ref() {
+                                    Expr::Call { func, args } => {
+                                        assert!(args.is_empty(), "inner call should have no args");
+                                        match func.as_ref().as_ref() {
+                                            Expr::Identifier(name) => assert_eq!(name, "foo"),
+                                            other => panic!(
+                                                "expected identifier for inner call, got {:?}",
+                                                other
+                                            ),
+                                        }
+                                    }
+                                    other => panic!(
+                                        "expected call before bar member, got {:?}",
+                                        other
+                                    ),
+                                }
+                            }
+                            other =>
+                                panic!("expected member call for bar, got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected call feeding baz, got {:?}", other),
+                }
+            }
+            other => panic!("expected member expression, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_member_assignment_statement() {
+        let source = "foo.bar = 42\n";
+        let tokens = otterc_lexer::tokenize(source).expect("tokenize assignment");
+        let program = parse(&tokens).expect("parse assignment");
+        assert_eq!(program.statements.len(), 1);
+        match program.statements[0].as_ref() {
+            Statement::Assignment { target, expr } => {
+                match target.as_ref() {
+                    Expr::Member { object, field } => {
+                        assert_eq!(field, "bar");
+                        match object.as_ref().as_ref() {
+                            Expr::Identifier(name) => assert_eq!(name, "foo"),
+                            other => panic!("expected identifier base, got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected member target, got {:?}", other),
+                }
+
+                match expr.as_ref() {
+                    Expr::Literal(lit) => match lit.as_ref() {
+                        Literal::Number(num) => assert_eq!(num.value as i64, 42),
+                        other => panic!("expected numeric literal, got {:?}", other),
+                    },
+                    other => panic!("expected literal rhs, got {:?}", other),
+                }
+            }
+            other => panic!("expected assignment, got {:?}", other),
+        }
     }
 }

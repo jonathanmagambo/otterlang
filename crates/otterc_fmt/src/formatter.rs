@@ -52,14 +52,12 @@ impl Formatter {
                     self.format_expr(expr, indent)
                 )
             }
-            Statement::Assignment { name, expr, .. } => {
-                format!(
-                    "{}{} = {}\n",
-                    self.indent(indent),
-                    name,
-                    self.format_expr(expr, indent)
-                )
-            }
+            Statement::Assignment { target, expr } => format!(
+                "{}{} = {}\n",
+                self.indent(indent),
+                self.format_expr(target, indent),
+                self.format_expr(expr, indent)
+            ),
             Statement::Function(f) => self.format_function(f, indent),
             Statement::If {
                 cond,

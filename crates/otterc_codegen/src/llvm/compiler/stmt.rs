@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
 
 use crate::llvm::compiler::Compiler;
 use crate::llvm::compiler::types::{EvaluatedValue, FunctionContext, OtterType, Variable};
@@ -100,28 +100,9 @@ impl<'ctx> Compiler<'ctx> {
                 // For Unit types, we don't create a variable
                 Ok(())
             }
-            Statement::Assignment { name, expr } => {
-                let val = self.eval_expr(expr.as_ref(), ctx)?;
-                let EvaluatedValue {
-                    ty: val_ty,
-                    value: val_value,
-                } = val;
-                if let Some(var) = ctx.get(name.as_ref()) {
-                    if let Some(v) = val_value {
-                        // Type checking and coercion
-                        let coerced_val = self.coerce_type(v, val_ty.clone(), var.ty.clone())?;
-                        self.builder.build_store(var.ptr, coerced_val)?;
-                    } else if val_ty != OtterType::Unit {
-                        bail!(
-                            "Cannot assign non-unit expression with no value to variable {}",
-                            name.as_ref()
-                        );
-                    }
-                    // Unit type assignments are no-ops
-                } else {
-                    bail!("Variable {} not declared", name.as_ref());
-                }
-                Ok(())
+            Statement::Assignment { target, expr } => {
+                let value = self.eval_expr(expr.as_ref(), ctx)?;
+                self.store_assignment_value(target.as_ref(), value, ctx)
             }
             Statement::If {
                 cond,
@@ -963,5 +944,153 @@ impl<'ctx> Compiler<'ctx> {
         };
 
         Ok(Some(value))
+    }
+
+    fn store_assignment_value(
+        &mut self,
+        target: &Expr,
+        value: EvaluatedValue<'ctx>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<()> {
+        match target {
+            Expr::Identifier(name) => self.store_identifier_assignment(name, value, ctx),
+            Expr::Member { .. } => self.store_member_assignment(target, value, ctx),
+            _ => bail!("assignment target is not assignable"),
+        }
+    }
+
+    fn store_identifier_assignment(
+        &mut self,
+        name: &str,
+        value: EvaluatedValue<'ctx>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<()> {
+        let EvaluatedValue { ty: val_ty, value: val_value } = value;
+        if let Some(var) = ctx.get(name) {
+            if let Some(v) = val_value {
+                let coerced_val = self.coerce_type(v, val_ty.clone(), var.ty.clone())?;
+                self.builder.build_store(var.ptr, coerced_val)?;
+            } else if val_ty != OtterType::Unit {
+                bail!(
+                    "Cannot assign non-unit expression with no value to variable {}",
+                    name
+                );
+            }
+            Ok(())
+        } else {
+            bail!("Variable {} not declared", name);
+        }
+    }
+
+    fn store_member_assignment(
+        &mut self,
+        target: &Expr,
+        value: EvaluatedValue<'ctx>,
+        ctx: &mut FunctionContext<'ctx>,
+    ) -> Result<()> {
+        let (base_name, fields) =
+            self.decompose_member_chain(target)
+                .ok_or_else(|| anyhow::anyhow!("unsupported assignment target"))?;
+        if fields.is_empty() {
+            return self.store_identifier_assignment(&base_name, value, ctx);
+        }
+
+        let EvaluatedValue { ty: rhs_ty, value: rhs_value } = value;
+        let var = ctx
+            .get(&base_name)
+            .ok_or_else(|| anyhow::anyhow!("Variable {} not declared", base_name))?;
+        if !matches!(var.ty, OtterType::Struct(_)) {
+            bail!("Variable {} is not a struct", base_name);
+        }
+
+        let basic_ty = self
+            .basic_type(var.ty.clone())?
+            .ok_or_else(|| anyhow::anyhow!("unsupported struct storage"))?;
+        let loaded = self
+            .builder
+            .build_load(basic_ty, var.ptr, &base_name)?
+            .as_basic_value_enum();
+        let updated = self.write_nested_struct_field(
+            loaded,
+            var.ty.clone(),
+            &fields,
+            &rhs_ty,
+            rhs_value.as_ref(),
+        )?;
+        self.builder.build_store(var.ptr, updated)?;
+        Ok(())
+    }
+
+    fn decompose_member_chain(&self, expr: &Expr) -> Option<(String, Vec<String>)> {
+        match expr {
+            Expr::Identifier(name) => Some((name.clone(), Vec::new())),
+            Expr::Member { object, field } => {
+                let (base, mut fields) = self.decompose_member_chain(object.as_ref().as_ref())?;
+                fields.push(field.clone());
+                Some((base, fields))
+            }
+            _ => None,
+        }
+    }
+
+    fn write_nested_struct_field(
+        &mut self,
+        current_value: BasicValueEnum<'ctx>,
+        current_ty: OtterType,
+        fields: &[String],
+        rhs_ty: &OtterType,
+        rhs_value: Option<&BasicValueEnum<'ctx>>,
+    ) -> Result<BasicValueEnum<'ctx>> {
+        let OtterType::Struct(struct_id) = current_ty else {
+            bail!("assignment target is not a struct member");
+        };
+        let info = self.struct_info(struct_id);
+        let field_name = &fields[0];
+        let field_index = info
+            .field_indices
+            .get(field_name)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("struct '{}' has no field '{}'", info.name, field_name))?;
+        let struct_value = current_value.into_struct_value();
+        let field_ty = info.field_types[field_index].clone();
+
+        if fields.len() == 1 {
+            if field_ty == OtterType::Unit {
+                return Ok(struct_value.as_basic_value_enum());
+            }
+            let rhs_basic = *rhs_value
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "cannot assign unit expression to non-unit field '{}'",
+                        field_name
+                    )
+                })?;
+            let coerced = self.coerce_type(rhs_basic, rhs_ty.clone(), field_ty)?;
+            let updated = self
+                .builder
+                .build_insert_value(struct_value, coerced, field_index as u32, "set_field")?;
+            Ok(updated.as_basic_value_enum())
+        } else {
+            let extracted = self
+                .builder
+                .build_extract_value(struct_value, field_index as u32, "get_field")?
+                .as_basic_value_enum();
+            let updated_child = self.write_nested_struct_field(
+                extracted,
+                field_ty,
+                &fields[1..],
+                rhs_ty,
+                rhs_value,
+            )?;
+            let updated = self
+                .builder
+                .build_insert_value(
+                    struct_value,
+                    updated_child,
+                    field_index as u32,
+                    "set_field",
+                )?;
+            Ok(updated.as_basic_value_enum())
+        }
     }
 }
